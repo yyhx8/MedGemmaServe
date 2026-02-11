@@ -69,6 +69,8 @@ class MedGemmaEngine:
         # Quantization support
         if self.quantize:
             engine_args_kwargs["quantization"] = "bitsandbytes"
+            engine_args_kwargs["enforce_eager"] = True
+            engine_args_kwargs["dtype"] = "half"  
             logger.info("Using 4-bit BitsAndBytes quantization")
 
         # HuggingFace token for gated models
