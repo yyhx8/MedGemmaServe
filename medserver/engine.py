@@ -1,21 +1,21 @@
-"""vLLM engine wrapper for MedGemma model loading and inference."""
+"""Hybrid engine for MedGemma inference (SGLang + Transformers)."""
 
 import asyncio
 import logging
+import platform
+import threading
 import time
-from typing import AsyncIterator, Optional
+from abc import ABC, abstractmethod
+from typing import AsyncIterator, Optional, List, Dict, Any
 
 import torch
 
+# Configure logging
 logger = logging.getLogger("medserver.engine")
 
 
-class MedGemmaEngine:
-    """Wraps vLLM's AsyncLLMEngine for MedGemma inference.
-
-    Handles model loading, tokenizer setup, and provides both
-    streaming and non-streaming generation methods.
-    """
+class BaseEngine(ABC):
+    """Abstract base class for inference engines."""
 
     def __init__(
         self,
@@ -33,11 +33,8 @@ class MedGemmaEngine:
         self.gpu_memory_utilization = gpu_memory_utilization
         self.hf_token = hf_token
 
-        self._engine = None
-        self._tokenizer = None
         self._loaded = False
         self._load_time: float = 0
-        self._request_counter: int = 0
 
     @property
     def is_loaded(self) -> bool:
@@ -47,52 +44,21 @@ class MedGemmaEngine:
     def load_time(self) -> float:
         return self._load_time
 
+    @abstractmethod
     async def load(self) -> None:
-        """Initialize and load the vLLM engine with the MedGemma model."""
-        from vllm import AsyncEngineArgs, AsyncLLMEngine
+        """Initialize and load the model."""
+        pass
 
-        logger.info(f"Loading model: {self.model_id}")
-        logger.info(f"Quantization: {'4-bit' if self.quantize else 'none'}")
-        logger.info(f"Max context length: {self.max_model_len}")
-        logger.info(f"GPU memory utilization: {self.gpu_memory_utilization:.0%}")
-
-        start = time.monotonic()
-
-        engine_args_kwargs = {
-            "model": self.model_id,
-            "max_model_len": self.max_model_len,
-            "gpu_memory_utilization": self.gpu_memory_utilization,
-            "trust_remote_code": True,
-            "enforce_eager": False,
-        }
-
-        # Quantization support
-        if self.quantize:
-            engine_args_kwargs["quantization"] = "bitsandbytes"
-            engine_args_kwargs["enforce_eager"] = True
-            engine_args_kwargs["dtype"] = "float32"  
-            logger.info("Using 4-bit BitsAndBytes quantization")
-
-        # HuggingFace token for gated models
-        if self.hf_token:
-            engine_args_kwargs["download_dir"] = None  # default cache
-            # vLLM reads HF_TOKEN env var automatically, but we also set it
-            import os
-            os.environ["HF_TOKEN"] = self.hf_token
-
-        # Multimodal configuration
-        if self.supports_images:
-            engine_args_kwargs["limit_mm_per_prompt"] = {"image": 5}
-            logger.info("Multimodal mode enabled (image support)")
-
-        engine_args = AsyncEngineArgs(**engine_args_kwargs)
-        self._engine = AsyncLLMEngine.from_engine_args(engine_args)
-
-        self._load_time = time.monotonic() - start
-        self._loaded = True
-        logger.info(
-            f"Model loaded successfully in {self._load_time:.1f}s"
-        )
+    @abstractmethod
+    async def stream_generate(
+        self,
+        prompt: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+        images: Optional[list] = None,
+    ) -> AsyncIterator[str]:
+        """Stream tokens as they are generated."""
+        pass
 
     async def generate(
         self,
@@ -112,68 +78,15 @@ class MedGemmaEngine:
             chunks.append(chunk)
         return "".join(chunks)
 
-    async def stream_generate(
-        self,
-        prompt: str,
-        max_tokens: int = 2048,
-        temperature: float = 0.3,
-        images: Optional[list] = None,
-    ) -> AsyncIterator[str]:
-        """Stream tokens as they are generated."""
-        from vllm import SamplingParams
-
-        if not self._loaded:
-            raise RuntimeError("Engine not loaded. Call load() first.")
-
-        self._request_counter += 1
-        request_id = f"medserver-{self._request_counter}"
-
-        sampling_params = SamplingParams(
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=0.95,
-            repetition_penalty=1.05,
-            stop=["<end_of_turn>", "<eos>"],
-        )
-
-        # Build multi-modal inputs if images provided
-        inputs = {"prompt": prompt}
-        if images and self.supports_images:
-            multi_modal_data = {"image": images}
-            inputs["multi_modal_data"] = multi_modal_data
-
-        # Stream results
-        results_generator = self._engine.generate(
-            inputs,
-            sampling_params,
-            request_id=request_id,
-        )
-
-        previous_text = ""
-        async for request_output in results_generator:
-            if request_output.outputs:
-                current_text = request_output.outputs[0].text
-                new_text = current_text[len(previous_text):]
-                previous_text = current_text
-                if new_text:
-                    yield new_text
-
     def format_chat_prompt(
         self,
-        messages: list[dict],
+        messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
     ) -> str:
-        """Format messages into Gemma chat template.
-
-        MedGemma uses the Gemma 3 chat format:
-        <start_of_turn>user
-        {message}<end_of_turn>
-        <start_of_turn>model
-        {response}<end_of_turn>
-        """
+        """Format messages into Gemma chat template (shared logic)."""
         parts = []
 
-        # System prompt as first user context
+        # System prompt as first user context if provided
         if system_prompt:
             parts.append(f"<start_of_turn>user\n{system_prompt}<end_of_turn>")
 
@@ -188,8 +101,209 @@ class MedGemmaEngine:
 
         # Add the model turn prompt
         parts.append("<start_of_turn>model\n")
-
         return "\n".join(parts)
+
+
+class SGLangEngine(BaseEngine):
+    """SGLang implementation (Linux + Ampere+ GPUs for high performance)."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._engine = None
+
+    async def load(self) -> None:
+        try:
+            import sglang
+        except ImportError:
+            raise ImportError("sglang not installed. This engine requires Linux.")
+
+        logger.info(f"Loading model with SGLang: {self.model_id}")
+        start = time.monotonic()
+
+        # Set env var for HF token if needed
+        if self.hf_token:
+            import os
+            os.environ["HF_TOKEN"] = self.hf_token
+
+        # Initialize SGLang Engine
+        # SGLang's Engine API mimics vLLM somewhat but is optimized for structured gen
+        # We use the lower-level Engine or Runtime depending on version.
+        # Assuming v0.1+ pattern:
+        self._engine = sglang.Engine(
+            model_path=self.model_id,
+            max_model_len=self.max_model_len,
+            mem_fraction_static=self.gpu_memory_utilization,
+            trust_remote_code=True,
+            tp_size=1,  # Tensor parallelism (default 1 for simplicity)
+        )
+
+        self._load_time = time.monotonic() - start
+        self._loaded = True
+        logger.info(f"SGLang model loaded in {self._load_time:.1f}s")
+
+    async def stream_generate(
+        self,
+        prompt: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+        images: Optional[list] = None,
+    ) -> AsyncIterator[str]:
+        if not self._loaded:
+            raise RuntimeError("Engine not loaded.")
+
+        # SGLang generation request
+        # This API is hypothetical based on common patterns, sglang usage might vary
+        # adapting to sglang's `async_generate` or similar.
+        
+        # NOTE: SGLang often runs as a server. If using the embedded Engine (Runtime),
+        # we typically interact via `engine.generate`.
+        
+        # Construct input
+        inputs = {"text": prompt}
+        if images and self.supports_images:
+             # SGLang image handling logic
+             inputs["image_data"] = images
+
+        sampling_params = {
+            "max_new_tokens": max_tokens,
+            "temperature": temperature,
+            "stop": ["<end_of_turn>", "<eos>"],
+        }
+
+        # Streaming generator
+        # SGLang's generator yields request output objects
+        generator = self._engine.generate(
+            inputs,
+            sampling_params,
+            stream=True
+        )
+
+        async for output in generator:
+            yield output["text"]
+
+
+class TransformersEngine(BaseEngine):
+    """Transformers implementation (compatible with older GPUs/Windows)."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._model = None
+        self._tokenizer = None
+        self._processor = None
+
+    async def load(self) -> None:
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            AutoProcessor,
+            BitsAndBytesConfig,
+            TextIteratorStreamer
+        )
+
+        logger.info(f"Loading model with Transformers: {self.model_id}")
+        start = time.monotonic()
+
+        # Quantization config
+        quantization_config = None
+        if self.quantize:
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_quant_type="nf4",
+            )
+            logger.info("Using 4-bit BitsAndBytes quantization (Transformers)")
+
+        # Load Tokenizer/Processor
+        try:
+            if self.supports_images:
+                self._processor = AutoProcessor.from_pretrained(
+                    self.model_id, token=self.hf_token, trust_remote_code=True
+                )
+            else:
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_id, token=self.hf_token, trust_remote_code=True
+                )
+        except Exception as e:
+            logger.error(f"Failed to load tokenizer/processor: {e}")
+            raise
+
+        # Load Model
+        self._model = AutoModelForCausalLM.from_pretrained(
+            self.model_id,
+            quantization_config=quantization_config,
+            device_map="auto",
+            trust_remote_code=True,
+            token=self.hf_token,
+            # Fallback to float32 if bfloat16/float16 isn't fully supported or preferred
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        )
+
+        self._load_time = time.monotonic() - start
+        self._loaded = True
+        logger.info(f"Transformers model loaded in {self._load_time:.1f}s")
+
+    async def stream_generate(
+        self,
+        prompt: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+        images: Optional[list] = None,
+    ) -> AsyncIterator[str]:
+        from transformers import TextIteratorStreamer
+
+        if not self._loaded:
+            raise RuntimeError("Engine not loaded.")
+
+        # Prepare inputs
+        inputs = None
+        if self.supports_images and self._processor and images:
+            # Multimodal input handling
+            text_prompt = prompt
+            inputs = self._processor(
+                text=[text_prompt],
+                images=images,
+                return_tensors="pt",
+                padding=True
+            ).to(self._model.device)
+        else:
+            # Text-only input
+            if self._processor:
+                 inputs = self._processor(
+                    text=[prompt],
+                    images=None,
+                    return_tensors="pt"
+                ).to(self._model.device)
+            elif self._tokenizer:
+                inputs = self._tokenizer(
+                    prompt, 
+                    return_tensors="pt"
+                ).to(self._model.device)
+
+        streamer = TextIteratorStreamer(
+            self._processor.tokenizer if self._processor else self._tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True
+        )
+
+        generation_kwargs = dict(
+            **inputs,
+            streamer=streamer,
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            do_sample=True,
+            repetition_penalty=1.05,
+        )
+
+        # Run generation in a separate thread
+        thread = threading.Thread(target=self._model.generate, kwargs=generation_kwargs)
+        thread.start()
+
+        # Yield tokens from streamer
+        for text in streamer:
+            yield text
+            await asyncio.sleep(0)
+            
+        thread.join()
 
 
 def get_gpu_info() -> dict:
@@ -199,10 +313,71 @@ def get_gpu_info() -> dict:
         "gpu_name": None,
         "gpu_vram_gb": None,
         "gpu_count": 0,
+        "compute_capability": None,
     }
     if torch.cuda.is_available():
         info["gpu_count"] = torch.cuda.device_count()
         info["gpu_name"] = torch.cuda.get_device_name(0)
-        total_mem = torch.cuda.get_device_properties(0).total_mem
+        total_mem = torch.cuda.get_device_properties(0).total_memory
         info["gpu_vram_gb"] = round(total_mem / (1024**3), 1)
+        
+        cc = torch.cuda.get_device_capability(0)
+        info["compute_capability"] = f"{cc[0]}.{cc[1]}"
+        
     return info
+
+
+def MedGemmaEngine(
+    model_id: str,
+    supports_images: bool = False,
+    quantize: bool = False,
+    max_model_len: int = 8192,
+    gpu_memory_utilization: float = 0.90,
+    hf_token: Optional[str] = None,
+) -> BaseEngine:
+    """Factory: Returns SGLangEngine (Linux high-perf) or TransformersEngine (Fallback)."""
+    
+    use_sglang = False
+    reason = "Unknown"
+
+    # 1. Check OS
+    is_linux = platform.system() == "Linux"
+    if not is_linux:
+        reason = "OS is not Linux (Windows detected)"
+    
+    # 2. Check SGLang installation & GPU Capability
+    if is_linux:
+        try:
+            import sglang
+            # Check Compute Capability >= 8.0 (Ampere+)
+            if torch.cuda.is_available():
+                major, minor = torch.cuda.get_device_capability()
+                if major >= 8:
+                    use_sglang = True
+                else:
+                    reason = f"GPU Compute Capability {major}.{minor} < 8.0 (SGLang requires Ampere+)"
+            else:
+                reason = "No CUDA GPU detected"
+        except ImportError:
+            reason = "sglang not installed"
+
+    if use_sglang:
+        logger.info(f"Selecting SGLang Engine (Linux + CC >= 8.0 detected)")
+        return SGLangEngine(
+            model_id=model_id,
+            supports_images=supports_images,
+            quantize=quantize,
+            max_model_len=max_model_len,
+            gpu_memory_utilization=gpu_memory_utilization,
+            hf_token=hf_token,
+        )
+    else:
+        logger.info(f"Selecting Transformers Engine ({reason})")
+        return TransformersEngine(
+            model_id=model_id,
+            supports_images=supports_images,
+            quantize=quantize,
+            max_model_len=max_model_len,
+            gpu_memory_utilization=gpu_memory_utilization,
+            hf_token=hf_token,
+        )

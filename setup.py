@@ -19,14 +19,12 @@ setup(
     install_requires=[
         "fastapi>=0.115.0",
         "uvicorn[standard]>=0.32.0",
-        "vllm>=0.6.0",
-        "huggingface-hub>=0.25.0",
-        "jinja2>=3.1.0",
-        "python-multipart>=0.0.12",
-        "pydantic>=2.0.0",
-        "torch>=2.4.0",
-        "pillow>=10.0.0",
+        "sglang[all]>=0.1.0; platform_system=='Linux'",
+        "flashinfer>=0.0.1; platform_system=='Linux'",
+        "transformers>=4.48.0",
+        "accelerate>=1.0.0",
         "bitsandbytes>=0.46.1",
+        "huggingface-hub>=0.25.0",
     ],
     entry_points={
         "console_scripts": [
