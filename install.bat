@@ -5,7 +5,7 @@ REM
 REM Installs everything needed to run MedGemma locally:
 REM   1. Checks Python 3.10+
 REM   2. Creates virtualenv
-REM   3. Installs pip dependencies (FastAPI, vLLM, PyTorch, etc.)
+REM   3. Installs pip dependencies (FastAPI, Transformers, PyTorch, etc.)
 REM   4. Configures HuggingFace token
 REM   5. Optionally pre-downloads the model
 REM

@@ -5,7 +5,7 @@
 # Installs everything needed to run MedGemma locally:
 #   1. Checks Python 3.10+
 #   2. Creates virtualenv
-#   3. Installs pip dependencies (FastAPI, vLLM, PyTorch, etc.)
+#   3. Installs pip dependencies (FastAPI, SGLang, Transformers, PyTorch, etc.)
 #   4. Configures HuggingFace token
 #   5. Optionally pre-downloads the model
 #
@@ -95,7 +95,7 @@ create_venv() {
 # ── Step 3: Install dependencies ──────────────────────────
 install_deps() {
     echo -e "${BOLD}[3/5] Installing dependencies...${NC}"
-    info "This may take 5-15 minutes (downloading vLLM, PyTorch, CUDA libs)..."
+    info "This may take 5-15 minutes (downloading SGLang, Transformers, PyTorch)..."
     echo ""
 
     pip install -e "." 2>&1 | while IFS= read -r line; do

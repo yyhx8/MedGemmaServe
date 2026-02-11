@@ -28,7 +28,7 @@ install.bat
 
 The installer will:
 - ✅ Check Python 3.10+
-- ✅ Create a virtualenv and install all dependencies (FastAPI, vLLM, PyTorch, CUDA)
+- ✅ Create a virtualenv and install all dependencies (FastAPI, Transformers, SGLang, PyTorch, CUDA)
 - ✅ Configure your HuggingFace token (needed for gated models)
 - ✅ Optionally pre-download the model weights
 
@@ -133,7 +133,7 @@ MedGemmaServe/
     ├── __init__.py            # Version info
     ├── cli.py                 # CLI entrypoint (medserver command)
     ├── models.py              # Model registry & API schemas
-    ├── engine.py              # vLLM async engine wrapper
+    ├── engine.py              # Hybrid engine (SGLang + Transformers)
     ├── server.py              # FastAPI server
     └── static/
         ├── index.html         # Clinical web UI
