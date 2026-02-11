@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MedServer — Self-hosted MedGemma clinical AI server with premium web interface">
+    <title>MedServer — Clinical AI</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+</head>
+
+<body>
+
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Connecting to MedServer...</div>
+        <div class="loading-subtext" id="loadingSubtext">Checking model status</div>
+    </div>
+
+    <!-- Clinical Disclaimer Modal -->
+    <div class="modal-overlay hidden" id="disclaimerModal">
+        <div class="modal">
+            <div class="modal-icon">⚕️</div>
+            <div class="modal-title">Clinical AI Disclaimer</div>
+            <div class="modal-body">
+                <p>This system is powered by <strong>MedGemma</strong>, an AI model for medical research and clinical
+                    decision support.</p>
+                <ul>
+                    <li>AI outputs require professional clinical validation</li>
+                    <li>Not a substitute for qualified medical judgment</li>
+                    <li>Not FDA-approved or CE-marked as a medical device</li>
+                    <li>For research and clinical decision support only</li>
+                </ul>
+                <p>By proceeding, you acknowledge these limitations and agree to validate all AI outputs against
+                    clinical standards.</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="disclaimerAccept">I Understand — Proceed</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Layout -->
+    <div class="app-layout">
+
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo-icon">M</div>
+                <div class="header-title">Med<span>Server</span></div>
+            </div>
+            <div class="header-right">
+                <div class="status-badge">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Connecting...</span>
+                </div>
+                <div class="network-badge" id="networkBadge">--</div>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- Active Model -->
+            <div class="sidebar-section">
+                <div class="sidebar-label">Active Model</div>
+                <div class="model-card" id="modelCard">
+                    <div class="model-card-name" id="modelName">Loading...</div>
+                    <div class="model-card-id" id="modelId">--</div>
+                    <div class="model-card-badges" id="modelBadges"></div>
+                </div>
+            </div>
+
+            <!-- GPU Info -->
+            <div class="sidebar-section">
+                <div class="sidebar-label">Hardware</div>
+                <div class="gpu-info" id="gpuInfo">
+                    <div class="gpu-info-row">
+                        <span class="gpu-info-label">GPU</span>
+                        <span class="gpu-info-value" id="gpuName">--</span>
+                    </div>
+                    <div class="gpu-info-row">
+                        <span class="gpu-info-label">VRAM</span>
+                        <span class="gpu-info-value" id="gpuVram">--</span>
+                    </div>
+                    <div class="gpu-info-row">
+                        <span class="gpu-info-label">Uptime</span>
+                        <span class="gpu-info-value" id="serverUptime">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Image Upload (multimodal only) -->
+            <div class="sidebar-section" id="imageSection">
+                <div class="sidebar-label">Medical Image</div>
+                <div class="image-upload-area" id="imageUploadArea">
+                    <span class="upload-icon">📷</span>
+                    <div class="upload-text">Drop image here or click to browse</div>
+                    <div class="upload-hint">DICOM, X-ray, CT, MRI (max 20MB)</div>
+                    <input type="file" id="imageInput" accept="image/*" hidden>
+                </div>
+                <div class="image-preview-container" id="imagePreviewContainer">
+                    <img class="image-preview" id="imagePreview" alt="Medical image preview">
+                    <div class="image-preview-actions">
+                        <button class="btn btn-secondary btn-sm" id="analyzeBtn" style="flex:1">🔬 Analyze
+                            Image</button>
+                        <button class="btn btn-danger btn-sm" id="removeImageBtn">✕</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat History -->
+            <div class="sidebar-section chat-history-section">
+                <div class="sidebar-label">Conversations</div>
+                <div class="chat-history-actions">
+                    <button class="btn btn-primary btn-sm" id="newChatBtn" style="flex:1">+ New Chat</button>
+                    <button class="btn btn-secondary btn-sm" id="clearHistoryBtn" title="Clear all history">🗑️</button>
+                </div>
+                <div class="chat-history-list" id="chatHistoryList">
+                    <div class="chat-history-empty">No conversations yet</div>
+                </div>
+            </div>
+
+            <!-- Disclaimer -->
+            <div class="sidebar-section">
+                <div class="disclaimer">
+                    <strong>⚠️ Clinical AI Notice</strong>
+                    MedGemma outputs are for research and clinical decision support.
+                    All results require professional validation before clinical use.
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="main-area">
+            <div class="chat-container" id="chatContainer">
+                <!-- Welcome Screen -->
+                <div class="welcome-screen" id="welcomeScreen">
+                    <div class="welcome-icon">🧬</div>
+                    <div class="welcome-title">MedGemma Clinical AI</div>
+                    <div class="welcome-subtitle">
+                        Ask clinical questions, request differential diagnoses,
+                        analyze medical images, or get evidence-based medical information.
+                    </div>
+                    <div class="quick-prompts">
+                        <button class="quick-prompt"
+                            data-prompt="What are the common differential diagnoses for acute chest pain in a 55-year-old male with hypertension?">
+                            <span class="quick-prompt-icon">🫀</span>
+                            Differential diagnosis for acute chest pain
+                        </button>
+                        <button class="quick-prompt"
+                            data-prompt="Summarize the current evidence-based guidelines for managing Type 2 Diabetes in elderly patients.">
+                            <span class="quick-prompt-icon">📋</span>
+                            T2DM management guidelines for elderly
+                        </button>
+                        <button class="quick-prompt"
+                            data-prompt="Explain the pathophysiology of sepsis and the recommended treatment approach following the Surviving Sepsis Campaign guidelines.">
+                            <span class="quick-prompt-icon">🩺</span>
+                            Sepsis pathophysiology and treatment
+                        </button>
+                        <button class="quick-prompt"
+                            data-prompt="What laboratory findings and imaging would you expect in a patient presenting with acute pancreatitis?">
+                            <span class="quick-prompt-icon">🔬</span>
+                            Lab findings in acute pancreatitis
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Bar -->
+            <div class="input-bar">
+                <div class="input-wrapper">
+                    <textarea class="chat-input" id="chatInput" placeholder="Ask a clinical question..."
+                        rows="1"></textarea>
+                    <button class="send-btn" id="sendBtn" disabled title="Send message">
+                        ▶
+                    </button>
+                </div>
+                <div class="input-footer">
+                    <span class="input-footer-text">
+                        MedGemma — For research and clinical decision support only
+                    </span>
+                    <span class="token-counter" id="tokenCounter"></span>
+                </div>
+            </div>
+        </main>
+
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

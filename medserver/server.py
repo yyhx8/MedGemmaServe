@@ -1,0 +1,236 @@
+"""FastAPI server for MedServer — serves both API and clinical frontend."""
+
+import asyncio
+import base64
+import io
+import json
+import logging
+import time
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from medserver import __version__, __app_name__
+from medserver.engine import MedGemmaEngine, get_gpu_info
+from medserver.models import (
+    AnalyzeRequest,
+    ChatRequest,
+    HealthResponse,
+    list_models,
+)
+
+logger = logging.getLogger("medserver.server")
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+# Clinical system prompt for MedGemma
+SYSTEM_PROMPT = (
+    "You are a clinical AI assistant powered by MedGemma. "
+    "You provide evidence-based medical information to support healthcare "
+    "professionals in their clinical decision-making. "
+    "Always note that your outputs require professional validation and "
+    "should not replace clinical judgment. "
+    "Be thorough, cite medical evidence when possible, and clearly state "
+    "limitations or uncertainties in your analysis."
+)
+
+
+def create_app(
+    engine: MedGemmaEngine,
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    model_key: str = "4",
+) -> FastAPI:
+    """Create and configure the FastAPI application."""
+
+    from medserver.models import get_model
+
+    model_info = get_model(model_key)
+    start_time = time.time()
+
+    app = FastAPI(
+        title=__app_name__,
+        version=__version__,
+        description="Self-hosted MedGemma clinical AI server",
+    )
+
+    # Wide-open CORS for LAN access
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Mount static files
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    # ------------------------------------------------------------------
+    # Routes
+    # ------------------------------------------------------------------
+
+    @app.get("/", response_class=HTMLResponse)
+    async def serve_frontend():
+        """Serve the clinical web UI."""
+        index_path = STATIC_DIR / "index.html"
+        return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+
+    @app.get("/api/health")
+    async def health_check():
+        """Server health + GPU info + model status."""
+        gpu = get_gpu_info()
+        return HealthResponse(
+            status="ready" if engine.is_loaded else "loading",
+            model_name=model_info.name,
+            model_id=model_info.model_id,
+            modality=model_info.modality,
+            supports_images=model_info.supports_images,
+            gpu_available=gpu["gpu_available"],
+            gpu_name=gpu.get("gpu_name"),
+            gpu_vram_gb=gpu.get("gpu_vram_gb"),
+            host=host,
+            port=port,
+            uptime_seconds=round(time.time() - start_time, 1),
+        )
+
+    @app.get("/api/models")
+    async def get_models():
+        """Return all available MedGemma model variants."""
+        models = list_models()
+        return {
+            "models": models,
+            "active_model": model_info.param_key,
+        }
+
+    @app.get("/api/model-info")
+    async def get_model_info():
+        """Return info about the currently loaded model."""
+        return {
+            "key": model_info.param_key,
+            "model_id": model_info.model_id,
+            "name": model_info.name,
+            "param_billions": model_info.param_billions,
+            "modality": model_info.modality,
+            "min_vram_gb": model_info.min_vram_gb,
+            "description": model_info.description,
+            "supports_images": model_info.supports_images,
+            "recommended_gpus": model_info.recommended_gpus,
+            "engine_load_time_s": round(engine.load_time, 1),
+        }
+
+    @app.post("/api/chat")
+    async def chat(request: ChatRequest):
+        """Chat completions — streaming or non-streaming."""
+        if not engine.is_loaded:
+            raise HTTPException(503, "Model is still loading. Please wait.")
+
+        messages = [{"role": m.role, "content": m.content} for m in request.messages]
+        prompt = engine.format_chat_prompt(messages, system_prompt=SYSTEM_PROMPT)
+
+        if request.stream:
+            return StreamingResponse(
+                _stream_chat(prompt, request.max_tokens, request.temperature),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        else:
+            result = await engine.generate(
+                prompt=prompt,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+            )
+            return {"response": result}
+
+    async def _stream_chat(prompt: str, max_tokens: int, temperature: float):
+        """SSE stream generator for chat responses."""
+        try:
+            async for token in engine.stream_generate(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            ):
+                data = json.dumps({"token": token})
+                yield f"data: {data}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    @app.post("/api/analyze")
+    async def analyze_image(
+        image: UploadFile = File(...),
+        prompt: str = Form("Analyze this medical image and provide clinical findings."),
+        max_tokens: int = Form(2048),
+        temperature: float = Form(0.3),
+    ):
+        """Multimodal image analysis (4B and 27B multimodal models only)."""
+        if not model_info.supports_images:
+            raise HTTPException(
+                400,
+                f"Image analysis is not supported by {model_info.name}. "
+                f"Use a multimodal model (-m 4 or -m 27).",
+            )
+
+        if not engine.is_loaded:
+            raise HTTPException(503, "Model is still loading. Please wait.")
+
+        # Read and validate image
+        contents = await image.read()
+        if len(contents) == 0:
+            raise HTTPException(400, "Empty image file.")
+        if len(contents) > 20 * 1024 * 1024:  # 20MB limit
+            raise HTTPException(400, "Image too large. Max 20MB.")
+
+        try:
+            from PIL import Image as PILImage
+            pil_image = PILImage.open(io.BytesIO(contents)).convert("RGB")
+        except Exception:
+            raise HTTPException(400, "Invalid image format.")
+
+        # Format prompt with image placeholder for Gemma
+        full_prompt = engine.format_chat_prompt(
+            [{"role": "user", "content": prompt}],
+            system_prompt=SYSTEM_PROMPT,
+        )
+
+        return StreamingResponse(
+            _stream_analyze(full_prompt, [pil_image], max_tokens, temperature),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    async def _stream_analyze(
+        prompt: str,
+        images: list,
+        max_tokens: int,
+        temperature: float,
+    ):
+        """SSE stream generator for image analysis."""
+        try:
+            async for token in engine.stream_generate(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                images=images,
+            ):
+                data = json.dumps({"token": token})
+                yield f"data: {data}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"Image analysis streaming error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return app
