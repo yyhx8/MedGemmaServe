@@ -70,7 +70,7 @@ class MedGemmaEngine:
         if self.quantize:
             engine_args_kwargs["quantization"] = "bitsandbytes"
             engine_args_kwargs["enforce_eager"] = True
-            engine_args_kwargs["dtype"] = "bfloat16"  
+            engine_args_kwargs["dtype"] = "float32"  
             logger.info("Using 4-bit BitsAndBytes quantization")
 
         # HuggingFace token for gated models
