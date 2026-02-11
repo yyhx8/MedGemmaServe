@@ -26,6 +26,7 @@ setup(
         "pydantic>=2.0.0",
         "torch>=2.4.0",
         "pillow>=10.0.0",
+        "bitsandbytes>=0.46.1",
     ],
     entry_points={
         "console_scripts": [
