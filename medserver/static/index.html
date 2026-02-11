@@ -1,195 +1,153 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="MedServer — Self-hosted MedGemma clinical AI server with premium web interface">
-    <title>MedServer — Clinical AI</title>
+    <title>MedServer</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
 </head>
-
 <body>
+    <div class="app-bg"></div>
 
     <!-- Loading Screen -->
     <div class="loading-screen" id="loadingScreen">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">Connecting to MedServer...</div>
-        <div class="loading-subtext" id="loadingSubtext">Checking model status</div>
+        <div class="spinner"></div>
+        <div style="font-weight: 500; font-size: 1.1rem;">MedServer</div>
+        <div id="loadingSubtext" style="color: var(--text-muted); font-size: 0.9rem;">Initializing...</div>
     </div>
 
-    <!-- Clinical Disclaimer Modal -->
+    <!-- Disclaimer Modal -->
     <div class="modal-overlay hidden" id="disclaimerModal">
         <div class="modal">
-            <div class="modal-icon">⚕️</div>
-            <div class="modal-title">Clinical AI Disclaimer</div>
-            <div class="modal-body">
-                <p>This system is powered by <strong>MedGemma</strong>, an AI model for medical research and clinical
-                    decision support.</p>
-                <ul>
-                    <li>AI outputs require professional clinical validation</li>
-                    <li>Not a substitute for qualified medical judgment</li>
-                    <li>Not FDA-approved or CE-marked as a medical device</li>
-                    <li>For research and clinical decision support only</li>
+            <div style="font-size: 2rem; margin-bottom: 16px;">⚕️</div>
+            <h2 style="margin-bottom: 12px; font-weight: 600;">Clinical AI Notice</h2>
+            <div style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 24px;">
+                <p>MedGemma is a research model. AI outputs require professional clinical validation.</p>
+                <ul style="margin: 12px 0; padding-left: 20px;">
+                    <li>Not a medical device</li>
+                    <li>Not for direct patient care</li>
+                    <li>Always verify with qualified personnel</li>
                 </ul>
-                <p>By proceeding, you acknowledge these limitations and agree to validate all AI outputs against
-                    clinical standards.</p>
             </div>
-            <div class="modal-actions">
-                <button class="btn btn-primary" id="disclaimerAccept">I Understand — Proceed</button>
-            </div>
+            <button class="btn-send" id="disclaimerAccept" style="width: 100%; height: 48px; border-radius: 12px; font-weight: 600;">
+                Accept & Proceed
+            </button>
         </div>
     </div>
 
-    <!-- App Layout -->
     <div class="app-layout">
-
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <div class="logo-icon">M</div>
-                <div class="header-title">Med<span>Server</span></div>
-            </div>
-            <div class="header-right">
-                <div class="status-badge">
-                    <div class="status-dot" id="statusDot"></div>
-                    <span id="statusText">Connecting...</span>
-                </div>
-                <div class="network-badge" id="networkBadge">--</div>
-            </div>
-        </header>
-
         <!-- Sidebar -->
-        <aside class="sidebar">
-            <!-- Active Model -->
-            <div class="sidebar-section">
-                <div class="sidebar-label">Active Model</div>
-                <div class="model-card" id="modelCard">
-                    <div class="model-card-name" id="modelName">Loading...</div>
-                    <div class="model-card-id" id="modelId">--</div>
-                    <div class="model-card-badges" id="modelBadges"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">M</div>
+                    <span>MedGemma</span>
                 </div>
             </div>
 
-            <!-- GPU Info -->
-            <div class="sidebar-section">
-                <div class="sidebar-label">Hardware</div>
-                <div class="gpu-info" id="gpuInfo">
-                    <div class="gpu-info-row">
-                        <span class="gpu-info-label">GPU</span>
-                        <span class="gpu-info-value" id="gpuName">--</span>
-                    </div>
-                    <div class="gpu-info-row">
-                        <span class="gpu-info-label">VRAM</span>
-                        <span class="gpu-info-value" id="gpuVram">--</span>
-                    </div>
-                    <div class="gpu-info-row">
-                        <span class="gpu-info-label">Uptime</span>
-                        <span class="gpu-info-value" id="serverUptime">--</span>
-                    </div>
+            <div class="sidebar-content">
+                <div class="sidebar-section">
+                    <button id="newChatBtn" class="btn-send" style="width: 100%; height: 40px; border-radius: 10px; font-size: 0.85rem; font-weight: 600;">
+                        + New Session
+                    </button>
                 </div>
-            </div>
 
-            <!-- Image Upload (multimodal only) -->
-            <div class="sidebar-section" id="imageSection">
-                <div class="sidebar-label">Medical Image</div>
-                <div class="image-upload-area" id="imageUploadArea">
-                    <span class="upload-icon">📷</span>
-                    <div class="upload-text">Drop image here or click to browse</div>
-                    <div class="upload-hint">DICOM, X-ray, CT, MRI (max 20MB)</div>
-                    <input type="file" id="imageInput" accept="image/*" hidden>
-                </div>
-                <div class="image-preview-container" id="imagePreviewContainer">
-                    <img class="image-preview" id="imagePreview" alt="Medical image preview">
-                    <div class="image-preview-actions">
-                        <button class="btn btn-secondary btn-sm" id="analyzeBtn" style="flex:1">🔬 Analyze
-                            Image</button>
-                        <button class="btn btn-danger btn-sm" id="removeImageBtn">✕</button>
+                <div class="sidebar-section" style="flex: 1;">
+                    <div class="sidebar-label">Recent Chats</div>
+                    <div id="chatHistoryList" class="chat-history-list">
+                        <!-- Populated by app.js -->
                     </div>
                 </div>
-            </div>
 
-            <!-- Chat History -->
-            <div class="sidebar-section chat-history-section">
-                <div class="sidebar-label">Conversations</div>
-                <div class="chat-history-actions">
-                    <button class="btn btn-primary btn-sm" id="newChatBtn" style="flex:1">+ New Chat</button>
-                    <button class="btn btn-secondary btn-sm" id="clearHistoryBtn" title="Clear all history">🗑️</button>
-                </div>
-                <div class="chat-history-list" id="chatHistoryList">
-                    <div class="chat-history-empty">No conversations yet</div>
-                </div>
-            </div>
-
-            <!-- Disclaimer -->
-            <div class="sidebar-section">
-                <div class="disclaimer">
-                    <strong>⚠️ Clinical AI Notice</strong>
-                    MedGemma outputs are for research and clinical decision support.
-                    All results require professional validation before clinical use.
+                <!-- Minimal Info Widget -->
+                <div class="sidebar-section" style="border-top: 1px solid var(--border); padding-top: 20px;">
+                    <div class="sidebar-label">Active Engine</div>
+                    <div id="modelName" style="font-size: 0.85rem; font-weight: 500; color: var(--text-main); margin-bottom: 4px;">--</div>
+                    <div id="modelBadges" style="display: flex; gap: 4px; margin-bottom: 12px;"></div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--text-dim);">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Hardware</span>
+                            <span id="gpuName" style="color: var(--text-muted);">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>VRAM</span>
+                            <span id="gpuVram" style="color: var(--text-muted);">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Host</span>
+                            <span id="networkBadge" style="color: var(--text-muted);">--</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </aside>
 
-        <!-- Main Chat Area -->
-        <main class="main-area">
-            <div class="chat-container" id="chatContainer">
-                <!-- Welcome Screen -->
-                <div class="welcome-screen" id="welcomeScreen">
-                    <div class="welcome-icon">🧬</div>
-                    <div class="welcome-title">MedGemma Clinical AI</div>
-                    <div class="welcome-subtitle">
-                        Ask clinical questions, request differential diagnoses,
-                        analyze medical images, or get evidence-based medical information.
+        <!-- Main Area -->
+        <main class="main-content">
+            <header class="main-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div class="status-indicator">
+                        <div class="status-dot" id="statusDot"></div>
+                        <span id="statusText">Connecting</span>
                     </div>
-                    <div class="quick-prompts">
-                        <button class="quick-prompt"
-                            data-prompt="What are the common differential diagnoses for acute chest pain in a 55-year-old male with hypertension?">
-                            <span class="quick-prompt-icon">🫀</span>
-                            Differential diagnosis for acute chest pain
-                        </button>
-                        <button class="quick-prompt"
-                            data-prompt="Summarize the current evidence-based guidelines for managing Type 2 Diabetes in elderly patients.">
-                            <span class="quick-prompt-icon">📋</span>
-                            T2DM management guidelines for elderly
-                        </button>
-                        <button class="quick-prompt"
-                            data-prompt="Explain the pathophysiology of sepsis and the recommended treatment approach following the Surviving Sepsis Campaign guidelines.">
-                            <span class="quick-prompt-icon">🩺</span>
-                            Sepsis pathophysiology and treatment
-                        </button>
-                        <button class="quick-prompt"
-                            data-prompt="What laboratory findings and imaging would you expect in a patient presenting with acute pancreatitis?">
-                            <span class="quick-prompt-icon">🔬</span>
-                            Lab findings in acute pancreatitis
-                        </button>
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <button class="upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
+                </div>
+            </header>
+
+            <div class="chat-container" id="chatContainer">
+                <!-- Welcome Screen (populated by app.js or initial) -->
+                <div class="welcome-overlay" id="welcomeScreen">
+                    <div class="welcome-title">MedGemma AI</div>
+                    <p class="welcome-desc">Specialized clinical intelligence for research and decision support.</p>
+                    <div class="quick-actions">
+                        <div class="action-card quick-prompt" data-prompt="Common differential diagnoses for acute chest pain?">
+                            <div style="font-size: 1.2rem; margin-bottom: 8px;">🫀</div>
+                            <div style="font-weight: 500; font-size: 0.85rem;">Cardiovascular</div>
+                            <div style="font-size: 0.75rem; color: var(--text-dim);">Chest pain differentials</div>
+                        </div>
+                        <div class="action-card quick-prompt" data-prompt="Summarize management guidelines for T2DM in elderly.">
+                            <div style="font-size: 1.2rem; margin-bottom: 8px;">📋</div>
+                            <div style="font-weight: 500; font-size: 0.85rem;">Metabolic</div>
+                            <div style="font-size: 0.75rem; color: var(--text-dim);">T2DM guidelines</div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Input Bar -->
-            <div class="input-bar">
-                <div class="input-wrapper">
-                    <textarea class="chat-input" id="chatInput" placeholder="Ask a clinical question..."
-                        rows="1"></textarea>
-                    <button class="send-btn" id="sendBtn" disabled title="Send message">
-                        ▶
+            <!-- Image Preview Floating (when selected) -->
+            <div id="imagePreviewContainer" class="hidden" style="position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: var(--bg-subtle); border: 1px solid var(--accent); border-radius: 12px; padding: 8px; z-index: 10;">
+                <img id="imagePreview" style="max-height: 120px; border-radius: 8px;">
+                <div style="display: flex; gap: 4px; margin-top: 8px;">
+                    <button id="analyzeBtn" class="btn-send" style="flex: 1; height: 32px; font-size: 0.75rem;">🔬 Analyze</button>
+                    <button id="removeImageBtn" style="width: 32px; height: 32px; background: #3f3f46; border: none; border-radius: 8px; color: white;">✕</button>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-container">
+                    <textarea id="chatInput" placeholder="Enter clinical inquiry..." rows="1"></textarea>
+                    <button class="btn-send" id="sendBtn" disabled>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
                 </div>
-                <div class="input-footer">
-                    <span class="input-footer-text">
-                        MedGemma — For research and clinical decision support only
-                    </span>
-                    <span class="token-counter" id="tokenCounter"></span>
+                <div style="text-align: center; margin-top: 12px; font-size: 0.7rem; color: var(--text-dim);">
+                    Precise medical reasoning powered by MedGemma • <span id="tokenCounter"></span>
                 </div>
             </div>
         </main>
-
     </div>
+
+    <!-- Hidden Inputs -->
+    <input type="file" id="imageInput" hidden accept="image/*">
+    <div id="imageSection" style="display:none"></div> <!-- Legacy placeholder for app.js -->
+    <div id="modelId" style="display:none"></div>
+    <div id="serverUptime" style="display:none"></div>
 
     <script src="/static/app.js"></script>
 </body>
-
 </html>

@@ -704,29 +704,21 @@
         welcome.className = 'welcome-screen';
         welcome.id = 'welcomeScreen';
         welcome.innerHTML = `
-            <div class="welcome-icon">🧬</div>
-            <div class="welcome-title">MedGemma Clinical AI</div>
-            <div class="welcome-subtitle">
-                Ask clinical questions, request differential diagnoses,
-                analyze medical images, or get evidence-based medical information.
-            </div>
-            <div class="quick-prompts">
-                <button class="quick-prompt" data-prompt="What are the common differential diagnoses for acute chest pain in a 55-year-old male with hypertension?">
-                    <span class="quick-prompt-icon">🫀</span>
-                    Differential diagnosis for acute chest pain
-                </button>
-                <button class="quick-prompt" data-prompt="Summarize the current evidence-based guidelines for managing Type 2 Diabetes in elderly patients.">
-                    <span class="quick-prompt-icon">📋</span>
-                    T2DM management guidelines for elderly
-                </button>
-                <button class="quick-prompt" data-prompt="Explain the pathophysiology of sepsis and the recommended treatment approach following the Surviving Sepsis Campaign guidelines.">
-                    <span class="quick-prompt-icon">🩺</span>
-                    Sepsis pathophysiology and treatment
-                </button>
-                <button class="quick-prompt" data-prompt="What laboratory findings and imaging would you expect in a patient presenting with acute pancreatitis?">
-                    <span class="quick-prompt-icon">🔬</span>
-                    Lab findings in acute pancreatitis
-                </button>
+            <div class="welcome-overlay">
+                <div class="welcome-title">MedGemma AI</div>
+                <p class="welcome-desc">Specialized clinical intelligence for research and decision support.</p>
+                <div class="quick-actions">
+                    <div class="action-card quick-prompt" data-prompt="Common differential diagnoses for acute chest pain?">
+                        <div style="font-size: 1.2rem; margin-bottom: 8px;">🫀</div>
+                        <div style="font-weight: 500; font-size: 0.85rem;">Cardiovascular</div>
+                        <div style="font-size: 0.75rem; color: var(--text-dim);">Chest pain differentials</div>
+                    </div>
+                    <div class="action-card quick-prompt" data-prompt="Summarize management guidelines for T2DM in elderly.">
+                        <div style="font-size: 1.2rem; margin-bottom: 8px;">📋</div>
+                        <div style="font-weight: 500; font-size: 0.85rem;">Metabolic</div>
+                        <div style="font-size: 0.75rem; color: var(--text-dim);">T2DM guidelines</div>
+                    </div>
+                </div>
             </div>
         `;
         els.chatContainer.appendChild(welcome);
