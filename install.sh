@@ -98,12 +98,7 @@ install_deps() {
     info "This may take 5-15 minutes (downloading SGLang, Transformers, PyTorch)..."
     echo ""
 
-    pip install -e "." 2>&1 | while IFS= read -r line; do
-        # Show progress on key packages
-        if echo "$line" | grep -qE "Successfully installed|Downloading|Installing"; then
-            echo -e "     ${line}"
-        fi
-    done
+    pip install -e "."
 
     log "All dependencies installed"
 }
