@@ -156,21 +156,26 @@
 
     function bindEvents() {
         // Chat input
-        els.chatInput.addEventListener('input', onInputChange);
-        els.chatInput.addEventListener('keydown', onInputKeydown);
-        els.sendBtn.addEventListener('click', onSend);
+        if (els.chatInput) {
+            els.chatInput.addEventListener('input', onInputChange);
+            els.chatInput.addEventListener('keydown', onInputKeydown);
+            els.chatInput.addEventListener('input', autoResizeInput);
+        }
+        if (els.sendBtn) els.sendBtn.addEventListener('click', onSend);
 
         // Quick prompts
         $$('.quick-prompt').forEach(btn => {
             btn.addEventListener('click', () => {
-                els.chatInput.value = btn.dataset.prompt;
-                onInputChange();
-                onSend();
+                if (els.chatInput) {
+                    els.chatInput.value = btn.dataset.prompt;
+                    onInputChange();
+                    onSend();
+                }
             });
         });
 
         // New chat
-        els.newChatBtn.addEventListener('click', startNewChat);
+        if (els.newChatBtn) els.newChatBtn.addEventListener('click', startNewChat);
 
         // Clear history
         if (els.clearHistoryBtn) {
@@ -183,30 +188,30 @@
         }
 
         // Image upload
-        els.imageUploadArea.addEventListener('click', () => els.imageInput.click());
-        els.imageInput.addEventListener('change', onImageSelected);
-        els.removeImageBtn.addEventListener('click', removeImage);
-        els.analyzeBtn.addEventListener('click', onAnalyzeImage);
+        if (els.imageUploadArea) {
+            els.imageUploadArea.addEventListener('click', () => els.imageInput.click());
 
-        // Drag & drop
-        els.imageUploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            els.imageUploadArea.classList.add('drag-over');
-        });
-        els.imageUploadArea.addEventListener('dragleave', () => {
-            els.imageUploadArea.classList.remove('drag-over');
-        });
-        els.imageUploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            els.imageUploadArea.classList.remove('drag-over');
-            if (e.dataTransfer.files.length) handleImageFile(e.dataTransfer.files[0]);
-        });
+            // Drag & drop
+            els.imageUploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                els.imageUploadArea.classList.add('drag-over');
+            });
+            els.imageUploadArea.addEventListener('dragleave', () => {
+                els.imageUploadArea.classList.remove('drag-over');
+            });
+            els.imageUploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                els.imageUploadArea.classList.remove('drag-over');
+                if (e.dataTransfer.files.length) handleImageFile(e.dataTransfer.files[0]);
+            });
+        }
+
+        if (els.imageInput) els.imageInput.addEventListener('change', onImageSelected);
+        if (els.removeImageBtn) els.removeImageBtn.addEventListener('click', removeImage);
+        if (els.analyzeBtn) els.analyzeBtn.addEventListener('click', onAnalyzeImage);
 
         // Disclaimer
-        els.disclaimerAccept.addEventListener('click', acceptDisclaimer);
-
-        // Auto-resize textarea
-        els.chatInput.addEventListener('input', autoResizeInput);
+        if (els.disclaimerAccept) els.disclaimerAccept.addEventListener('click', acceptDisclaimer);
     }
 
     // ── Chat History Management ───────────────────────────
@@ -365,12 +370,14 @@
             updateStatusUI(data);
 
             // Hide loading screen on first successful health check
-            if (!els.loadingScreen.classList.contains('hidden')) {
-                els.loadingScreen.classList.add('hidden');
+            const ls = els.loadingScreen || $('#loadingScreen');
+            if (ls && !ls.classList.contains('hidden')) {
+                ls.classList.add('hidden');
 
                 // Show disclaimer if not accepted
-                if (!state.disclaimerAccepted) {
-                    els.disclaimerModal.classList.remove('hidden');
+                const dm = els.disclaimerModal || $('#disclaimerModal');
+                if (dm && !state.disclaimerAccepted) {
+                    dm.classList.remove('hidden');
                 }
             }
         } catch (err) {
@@ -388,30 +395,37 @@
             els.statusText.textContent = 'Loading Model...';
         }
 
-        els.networkBadge.textContent = `${data.host}:${data.port}`;
-        els.modelName.textContent = data.model_name || '--';
-        els.modelId.textContent = data.model_id || '--';
+        if (els.networkBadge) els.networkBadge.textContent = `${data.host}:${data.port}`;
+        if (els.modelName) els.modelName.textContent = data.model_name || '--';
+        if (els.modelId) els.modelId.textContent = data.model_id || '--';
 
-        els.modelBadges.innerHTML = '';
-        if (data.modality) {
-            const cls = data.modality === 'multimodal' ? 'multimodal' : 'text-only';
-            els.modelBadges.innerHTML += `<span class="badge ${cls}">${data.modality}</span>`;
+        if (els.modelBadges) {
+            els.modelBadges.innerHTML = '';
+            if (data.modality) {
+                const cls = data.modality === 'multimodal' ? 'multimodal' : 'text-only';
+                els.modelBadges.innerHTML += `<span class="badge ${cls}">${data.modality}</span>`;
+            }
+            if (data.supports_images) {
+                els.modelBadges.innerHTML += '<span class="badge multimodal">vision</span>';
+            }
         }
-        if (data.supports_images) {
-            els.modelBadges.innerHTML += '<span class="badge multimodal">vision</span>';
-        }
 
-        els.gpuName.textContent = data.gpu_name || 'No GPU';
-        els.gpuVram.textContent = data.gpu_vram_gb ? `${data.gpu_vram_gb} GB` : '--';
-        els.serverUptime.textContent = formatUptime(data.uptime_seconds);
+        if (els.gpuName) els.gpuName.textContent = data.gpu_name || 'No GPU';
+        if (els.gpuVram) els.gpuVram.textContent = data.gpu_vram_gb ? `${data.gpu_vram_gb} GB` : '--';
+        if (els.serverUptime) els.serverUptime.textContent = formatUptime(data.uptime_seconds);
 
         if (data.supports_images) {
-            els.imageSection.style.display = '';
-            els.imageUploadArea.classList.remove('disabled');
+            if (els.imageSection) els.imageSection.style.display = '';
+            if (els.imageUploadArea) {
+                els.imageUploadArea.classList.remove('disabled');
+            }
         } else {
-            els.imageSection.style.display = '';
-            els.imageUploadArea.classList.add('disabled');
-            els.imageUploadArea.querySelector('.upload-text').textContent = 'Text-only model (no image support)';
+            if (els.imageSection) els.imageSection.style.display = '';
+            if (els.imageUploadArea) {
+                els.imageUploadArea.classList.add('disabled');
+                const ut = els.imageUploadArea.querySelector('.upload-text');
+                if (ut) ut.textContent = 'Text-only model (no image support)';
+            }
         }
     }
 
