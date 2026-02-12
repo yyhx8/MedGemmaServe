@@ -127,10 +127,11 @@
         isStreaming: false,
         serverReady: false,
         modelInfo: null,
-        attachedImage: null,
-        attachedImageData: null,
+        attachedImages: [], // Array of File objects
+        attachedImagesData: [], // Array of Base64 strings
         healthPollTimer: null,
         disclaimerAccepted: safeStorage.get('medserver_disclaimer') === 'accepted',
+        abortController: null,
     };
 
     // ── DOM References ────────────────────────────────────
@@ -163,7 +164,6 @@
             uploadBtn: $('.upload-btn'),
             imagePreviewContainer: $('#imagePreviewContainer'),
             imagePreview: $('#imagePreview'),
-            analyzeBtn: $('#analyzeBtn'),
             removeImageBtn: $('#removeImageBtn'),
             newChatBtn: $('#newChatBtn'),
             clearHistoryBtn: $('#clearHistoryBtn'),
@@ -246,7 +246,6 @@
 
         if (els.imageInput) els.imageInput.addEventListener('change', onImageSelected);
         if (els.removeImageBtn) els.removeImageBtn.addEventListener('click', removeImage);
-        if (els.analyzeBtn) els.analyzeBtn.addEventListener('click', onAnalyzeImage);
 
         // Disclaimer
         if (els.disclaimerAccept) els.disclaimerAccept.addEventListener('click', acceptDisclaimer);
@@ -317,7 +316,10 @@
 
             // Click to switch
             item.querySelector('.chat-history-item-content').addEventListener('click', () => {
-                if (state.isStreaming) return;
+                if (state.isStreaming) {
+                    alert('Please wait for the current response to finish or stop it before switching conversations.');
+                    return;
+                }
                 switchToChat(chat.id);
                 renderChatHistory();
                 closeSidebar();
@@ -326,7 +328,10 @@
             // Delete button
             item.querySelector('.chat-history-delete').addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (state.isStreaming) return;
+                if (state.isStreaming) {
+                    alert('Please wait for the current response to finish or stop it before deleting conversations.');
+                    return;
+                }
                 ChatStore.delete(chat.id);
                 if (state.activeChatId === chat.id) {
                     const remaining = ChatStore.list();
@@ -372,7 +377,10 @@
     }
 
     function startNewChat() {
-        if (state.isStreaming) return;
+        if (state.isStreaming) {
+            alert('Please wait for the current response to finish or stop it before starting a new conversation.');
+            return;
+        }
 
         // Create and switch
         state.activeChatId = null;
@@ -547,29 +555,44 @@
         if (state.isStreaming || !els.chatInput) return;
 
         const text = els.chatInput.value.trim();
-        if (!text) return;
+        if (!text && state.attachedImagesData.length === 0) return;
 
         ensureActiveChatExists();
         hideWelcomeScreen();
         closeSidebar();
 
         const msgIdx = state.messages.length;
-        addMessage('user', text, state.attachedImageData, true, msgIdx);
-        state.messages.push({ role: 'user', content: text, imageData: state.attachedImageData });
+        const currentImagesData = [...state.attachedImagesData];
+        
+        addMessage('user', text, currentImagesData, true, msgIdx);
+        state.messages.push({ 
+            role: 'user', 
+            content: text || (currentImagesData.length > 0 ? `[${currentImagesData.length} Images]` : ""), 
+            imageData: currentImagesData 
+        });
+        
         persistMessages();
 
         els.chatInput.value = '';
         els.chatInput.style.height = 'auto';
         onInputChange();
 
-        if (state.attachedImage) removeImage();
+        if (state.attachedImages.length > 0) removeImage();
 
         await streamChat();
     }
 
     async function streamChat() {
         if (!els.sendBtn) return;
+        
+        if (state.isStreaming) {
+            stopGeneration();
+            return;
+        }
+
         state.isStreaming = true;
+        state.abortController = new AbortController();
+        
         els.sendBtn.innerHTML = '■';
         els.sendBtn.classList.add('stop');
         els.sendBtn.disabled = false;
@@ -586,8 +609,13 @@
             const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: state.abortController.signal,
                 body: JSON.stringify({
-                    messages: state.messages.map(m => ({ role: m.role, content: m.content })),
+                    messages: state.messages.map(m => ({ 
+                        role: m.role, 
+                        content: m.content,
+                        image_data: m.imageData || []
+                    })),
                     max_tokens: 2048,
                     temperature: 0.3,
                     stream: true,
@@ -599,6 +627,7 @@
                 contentEl.innerHTML = `<span style="color:var(--status-alert)">Error: ${err.detail || 'Unknown error'}</span>`;
                 state.isStreaming = false;
                 resetSendButton();
+                renderRegenerateButton();
                 return;
             }
 
@@ -641,11 +670,32 @@
             renderRegenerateButton();
 
         } catch (err) {
-            contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
+            if (err.name === 'AbortError') {
+                contentEl.innerHTML += ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
+                // Save partial response if any
+                if (contentEl.innerText.trim().length > 0) {
+                     // Filter out the "(stopped)" text and typing indicator for storage
+                     const cleanedText = contentEl.innerText.replace('(stopped)', '').trim();
+                     if (cleanedText) {
+                         state.messages.push({ role: 'assistant', content: cleanedText });
+                         persistMessages();
+                     }
+                }
+            } else {
+                contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
+            }
+            renderRegenerateButton();
         }
 
         state.isStreaming = false;
+        state.abortController = null;
         resetSendButton();
+    }
+
+    function stopGeneration() {
+        if (state.abortController) {
+            state.abortController.abort();
+        }
     }
 
     function resetSendButton() {
@@ -657,7 +707,10 @@
 
     // ── Image Upload & Analysis ───────────────────────────
     function onImageSelected(e) {
-        if (e.target.files.length) handleImageFile(e.target.files[0]);
+        if (e.target.files.length) {
+            Array.from(e.target.files).forEach(file => handleImageFile(file));
+            e.target.value = ''; // Reset for next selection
+        }
     }
 
     function handleImageFile(file) {
@@ -670,115 +723,49 @@
             return;
         }
 
-        state.attachedImage = file;
-
         const reader = new FileReader();
         reader.onload = (e) => {
-            state.attachedImageData = e.target.result;
-            if (els.imagePreview) els.imagePreview.src = e.target.result;
-            if (els.imagePreviewContainer) els.imagePreviewContainer.classList.remove('hidden');
+            state.attachedImages.push(file);
+            state.attachedImagesData.push(e.target.result);
+            renderImagePreviews();
         };
         reader.readAsDataURL(file);
     }
 
-    function removeImage() {
-        state.attachedImage = null;
-        state.attachedImageData = null;
-        if (els.imageInput) els.imageInput.value = '';
-        if (els.imagePreviewContainer) els.imagePreviewContainer.classList.add('hidden');
-    }
-
-    async function onAnalyzeImage() {
-        if (!state.attachedImage || !state.serverReady) return;
-
-        const promptText = (els.chatInput ? els.chatInput.value.trim() : '') ||
-            'Analyze this medical image and provide detailed clinical findings.';
-
-        ensureActiveChatExists();
-        hideWelcomeScreen();
-        closeSidebar();
-
-        const userIdx = state.messages.length;
-        addMessage('user', promptText, state.attachedImageData, true, userIdx);
-
-        const formData = new FormData();
-        formData.append('image', state.attachedImage);
-        formData.append('prompt', promptText);
-        formData.append('max_tokens', '2048');
-        formData.append('temperature', '0.3');
-
-        if (els.chatInput) els.chatInput.value = '';
-        removeImage();
-
-        state.isStreaming = true;
-        if (els.sendBtn) {
-            els.sendBtn.innerHTML = '■';
-            els.sendBtn.classList.add('stop');
+    function renderImagePreviews() {
+        if (!els.imagePreviewContainer) return;
+        
+        els.imagePreviewContainer.innerHTML = '';
+        
+        if (state.attachedImagesData.length === 0) {
+            els.imagePreviewContainer.classList.add('hidden');
+            return;
         }
         
-        removeRegenerateButton();
+        els.imagePreviewContainer.classList.remove('hidden');
+        
+        state.attachedImagesData.forEach((data, index) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'preview-item';
+            wrapper.innerHTML = `
+                <img src="${data}">
+                <button class="remove-preview-btn" onclick="window.removeImage(${index})">✕</button>
+            `;
+            els.imagePreviewContainer.appendChild(wrapper);
+        });
+    }
 
-        const assistantIdx = userIdx + 1;
-        const msgEl = addMessage('assistant', '', null, true, assistantIdx);
-        const contentEl = msgEl.querySelector('.message-content .content-text');
-        contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+    window.removeImage = function(index) {
+        state.attachedImages.splice(index, 1);
+        state.attachedImagesData.splice(index, 1);
+        renderImagePreviews();
+    };
 
-        try {
-            const res = await fetch('/api/analyze', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({ detail: 'Server error' }));
-                contentEl.innerHTML = `<span style="color:var(--status-alert)">Error: ${err.detail || 'Unknown error'}</span>`;
-                state.isStreaming = false;
-                resetSendButton();
-                return;
-            }
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let fullText = '';
-            let buffer = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const payload = line.slice(6).trim();
-                    if (payload === '[DONE]') continue;
-
-                    try {
-                        const data = JSON.parse(payload);
-                        if (data.token) {
-                            fullText += data.token;
-                            contentEl.innerHTML = renderMarkdown(fullText);
-                            scrollToBottom();
-                        }
-                    } catch (_) { }
-                }
-            }
-
-            state.messages.push(
-                { role: 'user', content: `[Image Analysis] ${promptText}`, imageData: state.attachedImageData },
-                { role: 'assistant', content: fullText }
-            );
-            persistMessages();
-            renderRegenerateButton();
-
-        } catch (err) {
-            contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
-        }
-
-        state.isStreaming = false;
-        resetSendButton();
+    function removeImage() {
+        state.attachedImages = [];
+        state.attachedImagesData = [];
+        if (els.imageInput) els.imageInput.value = '';
+        renderImagePreviews();
     }
 
     // ── Welcome Screen ────────────────────────────────────
@@ -949,7 +936,7 @@
     }
 
     // ── Message Rendering ─────────────────────────────────
-    function addMessage(role, text, imageDataUrl, animate = true, index) {
+    function addMessage(role, text, imageDataUrls, animate = true, index) {
         if (!els.chatContainer) return;
         
         const msgDiv = document.createElement('div');
@@ -959,9 +946,16 @@
 
         const avatarIcon = role === 'assistant' ? 'M' : '👤';
 
-        let imageHtml = '';
-        if (imageDataUrl) {
-            imageHtml = `<img class="message-image" src="${imageDataUrl}" alt="Attached medical image">`;
+        let imagesHtml = '';
+        if (imageDataUrls && Array.isArray(imageDataUrls) && imageDataUrls.length > 0) {
+            imagesHtml = '<div class="message-images-grid">';
+            imageDataUrls.forEach(url => {
+                imagesHtml += `<img class="message-image" src="${url}" alt="Attached medical image" onclick="window.open('${url}', '_blank')">`;
+            });
+            imagesHtml += '</div>';
+        } else if (imageDataUrls && typeof imageDataUrls === 'string') {
+            // Backward compatibility for single string
+            imagesHtml = `<img class="message-image" src="${imageDataUrls}" alt="Attached medical image" onclick="window.open('${imageDataUrls}', '_blank')">`;
         }
 
         msgDiv.innerHTML = `
@@ -978,7 +972,7 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                 </div>
-                ${imageHtml}
+                ${imagesHtml}
                 <div class="content-text">${role === 'assistant' ? renderMarkdown(text) : escapeHtml(text)}</div>
             </div>
         `;
@@ -1014,8 +1008,19 @@
     function renderMarkdown(text) {
         if (!text) return '';
         
+        const thoughts = [];
+        let processedText = text.replace(/<unused94>([\s\S]*?)(?:<unused95>|$)/g, (match, thought) => {
+            const isClosed = match.includes('<unused95>');
+            const id = `__THOUGHT_${thoughts.length}__`;
+            thoughts.push({
+                content: thought.trim(),
+                isClosed: isClosed
+            });
+            return id;
+        });
+
         const codeBlocks = [];
-        let html = escapeHtml(text);
+        let html = escapeHtml(processedText);
 
         // 1. Protect multi-line code blocks
         html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
@@ -1050,6 +1055,19 @@
         // 5. Restore Protected Code Blocks
         codeBlocks.forEach((block, i) => {
             html = html.replace(`__CB_${i}__`, block);
+        });
+
+        // 6. Restore Thinking Traces
+        thoughts.forEach((thought, i) => {
+            const thoughtHtml = `
+                <div class="thinking-trace ${!thought.isClosed ? 'processing' : 'collapsed'}">
+                    <div class="thinking-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                        Thinking Process
+                    </div>
+                    <div class="thinking-content">${escapeHtml(thought.content)}</div>
+                </div>
+            `;
+            html = html.replace(`__THOUGHT_${i}__`, thoughtHtml);
         });
 
         // Cleanup empty paragraphs or misaligned tags

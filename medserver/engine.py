@@ -82,26 +82,39 @@ class BaseEngine(ABC):
         self,
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
+        num_images: int = 0,
     ) -> str:
-        """Format messages into Gemma chat template (shared logic)."""
+        """Format messages into Gemma chat template."""
         parts = []
 
         # System prompt as first user context if provided
         if system_prompt:
+            # We add a virtual user turn for the system prompt
             parts.append(f"<start_of_turn>user\n{system_prompt}<end_of_turn>")
 
-        for msg in messages:
+        for i, msg in enumerate(messages):
             role = msg.get("role", "user")
             content = msg.get("content", "")
 
             if role == "user":
+                # For Gemma chat models, we stick to the template.
+                # The <image> tokens are handled as a prefix below.
                 parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
             elif role == "assistant":
                 parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
 
-        # Add the model turn prompt
+        # Final model turn trigger
         parts.append("<start_of_turn>model\n")
-        return "\n".join(parts)
+        
+        full_prompt = "\n".join(parts)
+        
+        # PaliGemma Specific: The <image> tokens MUST be at the very beginning of the entire prompt.
+        # We prepend as many <image> tokens as there are images.
+        if num_images > 0:
+             image_prefix = "<image>" * num_images
+             full_prompt = image_prefix + "\n" + full_prompt
+
+        return full_prompt
 
 
 class SGLangEngine(BaseEngine):

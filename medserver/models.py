@@ -115,6 +115,7 @@ def list_models() -> list[dict]:
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
+    image_data: Optional[list[str]] = None  # List of Base64 encoded image data
 
 
 class ChatRequest(BaseModel):

@@ -136,12 +136,39 @@ def create_app(
         if not engine.is_loaded:
             raise HTTPException(503, "Model is still loading. Please wait.")
 
-        messages = [{"role": m.role, "content": m.content} for m in request.messages]
-        prompt = engine.format_chat_prompt(messages, system_prompt=SYSTEM_PROMPT)
+        messages = []
+        images = []
+        last_images_data = None
+        
+        from PIL import Image as PILImage
+        import base64
+        import io
+
+        for m in request.messages:
+            messages.append({"role": m.role, "content": m.content})
+            if m.image_data and model_info.supports_images:
+                last_images_data = m.image_data
+
+        if last_images_data:
+            for img_b64 in last_images_data:
+                try:
+                    # Handle base64 data URL
+                    header, encoded = img_b64.split(",", 1) if "," in img_b64 else (None, img_b64)
+                    image_bytes = base64.b64decode(encoded)
+                    pil_image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+                    images.append(pil_image)
+                except Exception as e:
+                    logger.error(f"Failed to decode image: {e}")
+
+        prompt = engine.format_chat_prompt(
+            messages, 
+            system_prompt=SYSTEM_PROMPT,
+            num_images=len(images)
+        )
 
         if request.stream:
             return StreamingResponse(
-                _stream_chat(prompt, request.max_tokens, request.temperature),
+                _stream_chat(prompt, request.max_tokens, request.temperature, images if images else None),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -154,16 +181,18 @@ def create_app(
                 prompt=prompt,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
+                images=images if images else None,
             )
             return {"response": result}
 
-    async def _stream_chat(prompt: str, max_tokens: int, temperature: float):
+    async def _stream_chat(prompt: str, max_tokens: int, temperature: float, images: Optional[list] = None):
         """SSE stream generator for chat responses."""
         try:
             async for token in engine.stream_generate(
                 prompt=prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                images=images,
             ):
                 data = json.dumps({"token": token})
                 yield f"data: {data}\n\n"
@@ -207,6 +236,7 @@ def create_app(
         full_prompt = engine.format_chat_prompt(
             [{"role": "user", "content": prompt}],
             system_prompt=SYSTEM_PROMPT,
+            has_images=True
         )
 
         return StreamingResponse(
