@@ -968,10 +968,12 @@
 
                 if (msg.role === 'user') {
                     // If user message was edited, we MUST clear subsequent and restart stream
+                    const currentScroll = els.chatContainer.scrollTop;
                     els.chatContainer.innerHTML = '';
                     state.messages.forEach((m, idx) => {
                         addMessage(m.role, m.content, m.imageData || null, false, idx);
                     });
+                    els.chatContainer.scrollTop = currentScroll;
                     await streamChat();
                 } else {
                     renderRegenerateButton();
@@ -1025,11 +1027,13 @@
         // Remove all messages after last user message
         state.messages = state.messages.slice(0, lastUserIdx + 1);
 
-        // Refresh UI
+        // Refresh UI - capture scroll to avoid jump
+        const currentScroll = els.chatContainer.scrollTop;
         els.chatContainer.innerHTML = '';
         state.messages.forEach((m, idx) => {
             addMessage(m.role, m.content, m.imageData || null, false, idx);
         });
+        els.chatContainer.scrollTop = currentScroll;
 
         await streamChat();
     }

@@ -68,7 +68,17 @@ body {
 /* ---- Layout ---- */
 .app-layout {
     display: flex;
-    height: 100vh;
+    height: 100dvh;
+}
+
+.sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    z-index: 90;
+    display: none;
+    height: 100dvh;
 }
 
 /* ---- Sidebar ---- */
@@ -81,6 +91,8 @@ body {
     backdrop-filter: blur(20px);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 100;
+    height: 100dvh;
+    /* Dynamic viewport height for mobile keyboard stability */
 }
 
 .sidebar-header {
