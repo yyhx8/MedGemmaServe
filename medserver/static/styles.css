@@ -19,6 +19,8 @@
     --border-bright: rgba(255, 255, 255, 0.14);
 
     --text-main: #fafafa;
+    --text-regular: #d1d1d6;
+    /* Balanced brightness for regular message text */
     --text-muted: #a1a1aa;
     --text-dim: #52525b;
 
@@ -306,8 +308,7 @@ body {
     flex: 1;
     font-size: 1rem;
     line-height: 1.7;
-    color: var(--text-muted);
-    /* Darker/Dimmer for regular text */
+    color: var(--text-regular);
     min-width: 0;
     overflow-wrap: break-word;
 }
@@ -315,7 +316,6 @@ body {
 .message-content strong,
 .message-content b {
     color: var(--text-main);
-    /* Brightest for bold text */
     font-weight: 700;
     letter-spacing: 0.01em;
 }
@@ -1097,6 +1097,7 @@ textarea {
     padding: 12px;
     font-size: 0.9rem;
     color: var(--text-muted);
+    /* Keeping this at a slightly dimmer level */
     font-style: italic;
     border-top: 1px solid var(--border);
     line-height: 1.6;
