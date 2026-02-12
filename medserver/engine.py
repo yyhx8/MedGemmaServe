@@ -308,27 +308,27 @@ class TransformersEngine(BaseEngine):
                     role = msg.get("role")
                     content = msg.get("content", "")
                     
+                    # Convert content to a list of dicts if it's not already
+                    # Vision models often require ALL content to be list-of-dicts if ANY are.
+                    if isinstance(content, str):
+                        msg_content = [{"type": "text", "text": content}]
+                    elif isinstance(content, list):
+                        # Filter to only keep text parts for now, we'll inject images into user turn
+                        msg_content = [c for c in content if c.get("type") == "text"]
+                    else:
+                        msg_content = []
+
                     if role == "user" and images and not image_injected:
-                        new_content = []
-                        for img in images:
-                            new_content.append({"type": "image", "image": img})
-                        
-                        if isinstance(content, list):
-                            new_content.extend([c for c in content if c.get("type") == "text"])
-                        else:
-                            new_content.append({"type": "text", "text": content})
-                        
-                        formatted_messages.append({"role": role, "content": new_content})
+                        # Prepend images to the first user message
+                        image_parts = [{"type": "image", "image": img} for img in images]
+                        msg_content = image_parts + msg_content
+                        formatted_messages.append({"role": role, "content": msg_content})
                         image_injected = True
                     else:
-                        # Standard text content
-                        if isinstance(content, list):
-                            text_content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
-                            formatted_messages.append({"role": role, "content": text_content})
-                        else:
-                            formatted_messages.append({"role": role, "content": content})
+                        formatted_messages.append({"role": role, "content": msg_content})
 
                 try:
+                    # Apply chat template with vision support
                     inputs = self._processor.apply_chat_template(
                         formatted_messages,
                         add_generation_prompt=True,
