@@ -321,15 +321,18 @@
 
     function updateJumpToBottomVisibility() {
         if (!els.chatContainer || !els.jumpToBottomBtn) return;
-        const threshold = 150;
-        const isNearBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) < threshold;
 
-        if (state.isStreaming && !isNearBottom) {
+        // Very strict threshold for auto-scroll logic (within 15px of the absolute bottom)
+        const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
+
+        if (state.isStreaming && !isAtBottom) {
             state.manualScroll = true;
-        } else if (isNearBottom) {
+        } else if (isAtBottom) {
             state.manualScroll = false;
         }
 
+        // Slightly looser threshold for showing the button (50px from bottom)
+        const isNearBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) < 50;
         if (isNearBottom) {
             els.jumpToBottomBtn.classList.add('hidden');
         } else {
@@ -1105,12 +1108,12 @@
     function scrollToBottom(force = false) {
         if (!els.chatContainer) return;
 
-        const threshold = 100; // tighter threshold for auto-scroll check
-        const isNearBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) < threshold;
+        // Strict threshold: only auto-scroll if already at the literal bottom (within 15px)
+        const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
 
         // If force is true, scroll regardless.
-        // If not forced, only scroll if we are already near bottom AND user hasn't manually scrolled up.
-        if (force || (isNearBottom && !state.manualScroll)) {
+        // If not forced, only scroll if we are already at the bottom AND user hasn't manually scrolled up.
+        if (force || (isAtBottom && !state.manualScroll)) {
             els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
         }
     }
