@@ -155,6 +155,7 @@
         disclaimerAccepted: safeStorage.get('medserver_disclaimer') === 'accepted',
         abortController: null,
         expandedThoughts: new Set(), // Track which thoughts are manually expanded: "msgIdx-thoughtIdx"
+        manualScroll: false, // Track if user has manually scrolled up during streaming
     };
 
     // ── DOM References ────────────────────────────────────
@@ -204,7 +205,7 @@
     // ── Initialization ────────────────────────────────────
     function init() {
         setupElements();
-        
+
         if (els.systemPromptInput) {
             els.systemPromptInput.value = ChatStore.getSystemPrompt();
             els.systemPromptInput.addEventListener('input', () => {
@@ -320,9 +321,15 @@
 
     function updateJumpToBottomVisibility() {
         if (!els.chatContainer || !els.jumpToBottomBtn) return;
-        const threshold = 200; // Show if more than 200px from bottom
+        const threshold = 150;
         const isNearBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) < threshold;
-        
+
+        if (state.isStreaming && !isNearBottom) {
+            state.manualScroll = true;
+        } else if (isNearBottom) {
+            state.manualScroll = false;
+        }
+
         if (isNearBottom) {
             els.jumpToBottomBtn.classList.add('hidden');
         } else {
@@ -631,7 +638,7 @@
 
         const msgIdx = state.messages.length;
         const currentImagesData = [...state.attachedImagesData];
-        
+
         // Structured content for the API
         const structuredContent = [];
         currentImagesData.forEach(() => {
@@ -642,12 +649,12 @@
         }
 
         addMessage('user', text, currentImagesData, true, msgIdx);
-        state.messages.push({ 
-            role: 'user', 
-            content: structuredContent, 
-            imageData: currentImagesData 
+        state.messages.push({
+            role: 'user',
+            content: structuredContent,
+            imageData: currentImagesData
         });
-        
+
         persistMessages();
 
         els.chatInput.value = '';
@@ -656,19 +663,20 @@
 
         if (state.attachedImages.length > 0) removeImage();
 
+        state.manualScroll = false; // Reset on new send
         await streamChat();
     }
 
     async function streamChat() {
         if (!els.sendBtn) return;
-        
+
         state.isStreaming = true;
         state.abortController = new AbortController();
-        
+
         els.sendBtn.innerHTML = '■';
         els.sendBtn.classList.add('stop');
         els.sendBtn.disabled = false;
-        
+
         removeRegenerateButton();
 
         const assistantMsgIdx = state.messages.length;
@@ -683,8 +691,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 signal: state.abortController.signal,
                 body: JSON.stringify({
-                    messages: state.messages.map(m => ({ 
-                        role: m.role, 
+                    messages: state.messages.map(m => ({
+                        role: m.role,
                         content: m.content,
                         image_data: m.imageData || []
                     })),
@@ -753,11 +761,11 @@
                 contentEl.innerHTML += ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
                 // Save partial response if any
                 if (contentEl.innerText.trim().length > 0) {
-                     const cleanedText = contentEl.innerText.replace('(stopped)', '').trim();
-                     if (cleanedText) {
-                         state.messages.push({ role: 'assistant', content: cleanedText });
-                         persistMessages();
-                     }
+                    const cleanedText = contentEl.innerText.replace('(stopped)', '').trim();
+                    if (cleanedText) {
+                        state.messages.push({ role: 'assistant', content: cleanedText });
+                        persistMessages();
+                    }
                 }
             } else {
                 contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
@@ -812,16 +820,16 @@
 
     function renderImagePreviews() {
         if (!els.imagePreviewContainer) return;
-        
+
         els.imagePreviewContainer.innerHTML = '';
-        
+
         if (state.attachedImagesData.length === 0) {
             els.imagePreviewContainer.classList.add('hidden');
             return;
         }
-        
+
         els.imagePreviewContainer.classList.remove('hidden');
-        
+
         state.attachedImagesData.forEach((data, index) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-item';
@@ -833,7 +841,7 @@
         });
     }
 
-    window.removeImage = function(index) {
+    window.removeImage = function (index) {
         state.attachedImages.splice(index, 1);
         state.attachedImagesData.splice(index, 1);
         renderImagePreviews();
@@ -940,17 +948,17 @@
                 } else {
                     state.messages[index].content = newContent;
                 }
-                
+
                 state.messages = state.messages.slice(0, index + 1);
-                
+
                 // Refresh UI
                 els.chatContainer.innerHTML = '';
                 state.messages.forEach((m, idx) => {
                     addMessage(m.role, m.content, m.imageData || null, false, idx);
                 });
-                
+
                 persistMessages();
-                
+
                 if (msg.role === 'user') {
                     await streamChat();
                 } else {
@@ -967,7 +975,7 @@
         if (state.isStreaming) return;
         state.messages.splice(index, 1);
         persistMessages();
-        
+
         els.chatContainer.innerHTML = '';
         if (state.messages.length === 0) {
             showWelcomeScreen();
@@ -981,7 +989,7 @@
 
     async function regenerateResponse() {
         if (state.isStreaming || state.messages.length === 0) return;
-        
+
         // Find last user message
         let lastUserIdx = -1;
         for (let i = state.messages.length - 1; i >= 0; i--) {
@@ -990,28 +998,28 @@
                 break;
             }
         }
-        
+
         if (lastUserIdx === -1) return;
-        
+
         // Remove all messages after last user message
         state.messages = state.messages.slice(0, lastUserIdx + 1);
-        
+
         // Refresh UI
         els.chatContainer.innerHTML = '';
         state.messages.forEach((m, idx) => {
             addMessage(m.role, m.content, m.imageData || null, false, idx);
         });
-        
+
         await streamChat();
     }
 
     function renderRegenerateButton() {
         removeRegenerateButton();
         if (state.messages.length === 0) return;
-        
+
         const lastMsg = state.messages[state.messages.length - 1];
         if (lastMsg.role !== 'assistant') return;
-        
+
         const container = document.createElement('div');
         container.className = 'regenerate-container';
         container.id = 'regenerateContainer';
@@ -1021,7 +1029,7 @@
                 Regenerate response
             </button>
         `;
-        
+
         els.chatContainer.appendChild(container);
         container.querySelector('.btn-regenerate').addEventListener('click', regenerateResponse);
         scrollToBottom();
@@ -1035,7 +1043,7 @@
     // ── Message Rendering ─────────────────────────────────
     function addMessage(role, content, imageDataUrls, animate = true, index) {
         if (!els.chatContainer) return;
-        
+
         const text = getMessageText(content);
 
         const msgDiv = document.createElement('div');
@@ -1077,7 +1085,7 @@
         `;
 
         els.chatContainer.appendChild(msgDiv);
-        
+
         // Bind actions
         msgDiv.querySelector('.copy-btn').addEventListener('click', () => {
             navigator.clipboard.writeText(text);
@@ -1086,7 +1094,7 @@
             btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
             setTimeout(() => btn.innerHTML = oldHtml, 2000);
         });
-        
+
         msgDiv.querySelector('.edit-btn').addEventListener('click', () => editMessage(index));
         msgDiv.querySelector('.delete-btn').addEventListener('click', () => deleteMessage(index));
 
@@ -1096,11 +1104,13 @@
 
     function scrollToBottom(force = false) {
         if (!els.chatContainer) return;
-        
-        const threshold = 150; // pixels from bottom
+
+        const threshold = 100; // tighter threshold for auto-scroll check
         const isNearBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) < threshold;
-        
-        if (force || isNearBottom) {
+
+        // If force is true, scroll regardless.
+        // If not forced, only scroll if we are already near bottom AND user hasn't manually scrolled up.
+        if (force || (isNearBottom && !state.manualScroll)) {
             els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
         }
     }
@@ -1111,7 +1121,7 @@
      */
     function renderMarkdown(text, msgIdx = -1) {
         if (!text) return '';
-        
+
         const thoughts = [];
         let processedText = text.replace(/<unused94>([\s\S]*?)(?:<unused95>|$)/g, (match, thought) => {
             const isClosed = match.includes('<unused95>');
@@ -1166,10 +1176,13 @@
             const thoughtKey = `${msgIdx}-${i}`;
             const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
             const isProcessing = !thought.isClosed;
-            
+
             // It should be collapsed if it's closed AND not manually expanded
-            // If it's processing, it should be visible (not collapsed)
-            const isCollapsed = thought.isClosed && !isManuallyExpanded;
+            // If it's processing, it should be visible (not collapsed) unless manually toggled
+            let isCollapsed = thought.isClosed && !isManuallyExpanded;
+            if (!thought.isClosed && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
+                isCollapsed = true;
+            }
 
             const thoughtHtml = `
                 <div class="thinking-trace ${isProcessing ? 'processing' : ''} ${isCollapsed ? 'collapsed' : ''}" data-thought-key="${thoughtKey}">
@@ -1190,16 +1203,21 @@
         return html;
     }
 
-    window.toggleThought = function(key, el) {
+    window.toggleThought = function (key, el) {
         if (el.classList.contains('collapsed')) {
             el.classList.remove('collapsed');
             state.expandedThoughts.add(key);
+            state.expandedThoughts.delete(key + '-collapsed');
         } else {
             el.classList.add('collapsed');
             state.expandedThoughts.delete(key);
+            // If it's a processing thought, we need a special marker to keep it collapsed during stream
+            if (el.classList.contains('processing')) {
+                state.expandedThoughts.add(key + '-collapsed');
+            }
         }
         // If we were at the bottom before toggling, stay at the bottom
-        scrollToBottom();
+        scrollToBottom(true); // Force scroll when manually toggling to show content
     };
 
     function escapeHtml(text) {

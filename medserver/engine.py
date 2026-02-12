@@ -85,54 +85,57 @@ class BaseEngine(ABC):
         system_prompt: Optional[str] = None,
         num_images: int = 0,
     ) -> str:
-        """Format messages into Gemma chat template."""
+        """Format messages into Gemma chat template with vision support."""
         parts = []
 
-        # PaliGemma/MedGemma Specific: The <image> tokens MUST be at the very beginning of the entire prompt.
-        image_prefix = ""
+        # MedGemma 1.5 (PaliGemma 2 based) requires <image> tokens inside the user turn.
+        # We'll inject them into the first user message.
+        image_injected = False
+        image_tokens = ""
         if num_images > 0:
-             # MedGemma 1.5/PaliGemma 2 often expects image tokens followed by a newline
-             image_prefix = "<image>" * num_images + "\n"
+             # Standard PaliGemma format is <image> tokens followed by a newline
+             image_tokens = "<image>" * num_images + "\n"
+             logger.debug(f"Prepared {num_images} image tokens for injection")
 
-        # Extract system prompt from messages if not provided explicitly
+        # Extract system prompt
         if not system_prompt:
             for msg in messages:
                 if msg.get("role") == "system":
                     system_prompt = msg.get("content", "")
                     if isinstance(system_prompt, list):
-                        # Extract text from structured content if needed
                         text_parts = [item.get("text", "") for item in system_prompt if item.get("type") == "text"]
                         system_prompt = " ".join(text_parts)
                     break
 
-        # System prompt as first user context if provided
+        # System prompt as virtual user turn
         if system_prompt:
-            # We add a virtual user turn for the system prompt
             parts.append(f"<start_of_turn>user\n{system_prompt}<end_of_turn>")
 
         for msg in messages:
             role = msg.get("role")
             content = msg.get("content", "")
             
-            # Handle structured content (list of dicts)
             if isinstance(content, list):
                 text_parts = [item.get("text", "") for item in content if item.get("type") == "text"]
                 content = " ".join(text_parts)
 
             if role == "user":
+                # Inject image tokens into the first user turn if they haven't been yet
+                if not image_injected and image_tokens:
+                    content = image_tokens + content
+                    image_injected = True
                 parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
             elif role == "assistant" or role == "model":
                 parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
+
+        # Ensure tokens are added even if no user message was found (unlikely but safe)
+        if not image_injected and image_tokens and parts:
+             parts[0] = parts[0].replace("<start_of_turn>user\n", f"<start_of_turn>user\n{image_tokens}")
 
         # Final model turn trigger
         parts.append("<start_of_turn>model\n")
         
         full_prompt = "\n".join(parts)
-        
-        if image_prefix:
-            # Prepend without an extra newline to ensure it's at the absolute start
-            full_prompt = image_prefix + full_prompt
-
         return full_prompt
 
 
@@ -373,8 +376,9 @@ class TransformersEngine(BaseEngine):
             if inputs is None:
                 # Fallback to manual formatting
                 final_prompt = prompt
+                num_images = len(images) if images else 0
                 if isinstance(prompt, list):
-                    final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
+                    final_prompt = self.format_chat_prompt(prompt, num_images=num_images)
                 
                 inputs = self._processor(
                     text=[final_prompt],

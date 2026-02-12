@@ -152,6 +152,7 @@ def create_app(
                 last_images_data = m.image_data
 
         if last_images_data:
+            logger.info(f"Processing {len(last_images_data)} images for chat request")
             for img_b64 in last_images_data:
                 try:
                     # Handle base64 data URL
@@ -161,6 +162,11 @@ def create_app(
                     images.append(pil_image)
                 except Exception as e:
                     logger.error(f"Failed to decode image: {e}")
+
+        # If model doesn't support images, ensure we don't pass any
+        if not model_info.supports_images and images:
+            logger.warning(f"Model {model_info.name} does not support images. Ignoring attached images.")
+            images = []
 
         if request.stream:
             stop_event = threading.Event()
