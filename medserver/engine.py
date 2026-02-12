@@ -82,61 +82,37 @@ class BaseEngine(ABC):
     def format_chat_prompt(
         self,
         messages: List[Dict[str, Any]],
-        system_prompt: Optional[str] = None,
         num_images: int = 0,
     ) -> str:
-        """Format messages into Gemma chat template with vision support."""
+        """
+        Legacy manual formatter. 
+        DEPRECATED: Prefer using processor.apply_chat_template for Gemma 3.
+        Used primarily as fallback or for engines without native template support.
+        """
         parts = []
-
-        # MedGemma 1.5 (PaliGemma 2 based) requires <image> tokens inside the user turn.
-        # We'll inject them into the first user message.
-        image_injected = False
-        image_tokens = ""
-        if num_images > 0:
-             # Standard PaliGemma format is <image> tokens followed by a newline
-             image_tokens = "<image>" * num_images + "\n"
-             logger.debug(f"Prepared {num_images} image tokens for injection")
-
-        # Extract system prompt
-        if not system_prompt:
-            for msg in messages:
-                if msg.get("role") == "system":
-                    system_prompt = msg.get("content", "")
-                    if isinstance(system_prompt, list):
-                        text_parts = [item.get("text", "") for item in system_prompt if item.get("type") == "text"]
-                        system_prompt = " ".join(text_parts)
-                    break
-
-        # System prompt as virtual user turn
-        if system_prompt:
-            parts.append(f"<start_of_turn>user\n{system_prompt}<end_of_turn>")
-
         for msg in messages:
             role = msg.get("role")
             content = msg.get("content", "")
             
+            # Simple list to text conversion if needed
             if isinstance(content, list):
                 text_parts = [item.get("text", "") for item in content if item.get("type") == "text"]
                 content = " ".join(text_parts)
 
-            if role == "user":
-                # Inject image tokens into the first user turn if they haven't been yet
-                if not image_injected and image_tokens:
-                    content = image_tokens + content
-                    image_injected = True
-                parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
+            if role == "system":
+                parts.append(f"<start_of_turn>system\n{content}<end_of_turn>")
+            elif role == "user":
+                # For basic text templates, we might need to inject <image> 
+                # but Gemma 3 prefers structured list content.
+                prefix = ""
+                if len(parts) == 0 or (len(parts) == 1 and "system" in parts[0]):
+                    prefix = ("<image>" * num_images) + "\n" if num_images > 0 else ""
+                parts.append(f"<start_of_turn>user\n{prefix}{content}<end_of_turn>")
             elif role == "assistant" or role == "model":
                 parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
 
-        # Ensure tokens are added even if no user message was found (unlikely but safe)
-        if not image_injected and image_tokens and parts:
-             parts[0] = parts[0].replace("<start_of_turn>user\n", f"<start_of_turn>user\n{image_tokens}")
-
-        # Final model turn trigger
         parts.append("<start_of_turn>model\n")
-        
-        full_prompt = "\n".join(parts)
-        return full_prompt
+        return "\n".join(parts)
 
 
 class SGLangEngine(BaseEngine):
@@ -187,15 +163,14 @@ class SGLangEngine(BaseEngine):
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
 
-        # Always format structured prompt for consistency
+        # SGLang formatting
         final_prompt = prompt
         if isinstance(prompt, list):
+             # SGLang needs the text with <image> tokens
              final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
 
-        # Construct input
         inputs = {"text": final_prompt}
         if images and self.supports_images:
-             # SGLang takes a list of PIL images or base64 strings
              inputs["image_data"] = images
 
         sampling_params = {
@@ -204,8 +179,6 @@ class SGLangEngine(BaseEngine):
             "stop": ["<end_of_turn>", "<eos>", "<|endoftext|>"],
         }
 
-        # SGLang usually returns cumulative text in the 'text' field.
-        # We need to yield deltas for the frontend.
         generator = self._engine.generate(
             inputs,
             sampling_params,
@@ -324,36 +297,38 @@ class TransformersEngine(BaseEngine):
         inputs = None
         
         # Multimodal input handling
-        if self.supports_images and self._processor and images:
-            # Try to use processor's apply_chat_template (preferred for MedGemma 1.5)
-            if hasattr(self._processor, "apply_chat_template") and isinstance(prompt, list):
-                try:
-                    formatted_messages = []
-                    image_added = False
-                    for msg in prompt:
-                        role = msg.get("role")
-                        content = msg.get("content", "")
-                        
-                        if role == "user" and not image_added:
-                            new_content = []
-                            for img in images:
-                                new_content.append({"type": "image", "image": img})
-                            
-                            if isinstance(content, list):
-                                new_content.extend([c for c in content if c.get("type") == "text"])
-                            else:
-                                new_content.append({"type": "text", "text": content})
-                            
-                            image_added = True
-                            formatted_messages.append({"role": role, "content": new_content})
-                        else:
-                            # Standard text content
-                            if isinstance(content, list):
-                                text_content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
-                                formatted_messages.append({"role": role, "content": text_content})
-                            else:
-                                formatted_messages.append({"role": role, "content": content})
+        if self.supports_images and self._processor:
+            # Gemma 3 / MedGemma vision input formatting: 
+            # processor.apply_chat_template takes list of dicts with content as list of text/image dicts.
+            if isinstance(prompt, list):
+                formatted_messages = []
+                image_injected = False
+                
+                for msg in prompt:
+                    role = msg.get("role")
+                    content = msg.get("content", "")
                     
+                    if role == "user" and images and not image_injected:
+                        new_content = []
+                        for img in images:
+                            new_content.append({"type": "image", "image": img})
+                        
+                        if isinstance(content, list):
+                            new_content.extend([c for c in content if c.get("type") == "text"])
+                        else:
+                            new_content.append({"type": "text", "text": content})
+                        
+                        formatted_messages.append({"role": role, "content": new_content})
+                        image_injected = True
+                    else:
+                        # Standard text content
+                        if isinstance(content, list):
+                            text_content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
+                            formatted_messages.append({"role": role, "content": text_content})
+                        else:
+                            formatted_messages.append({"role": role, "content": content})
+
+                try:
                     inputs = self._processor.apply_chat_template(
                         formatted_messages,
                         add_generation_prompt=True,
@@ -362,24 +337,20 @@ class TransformersEngine(BaseEngine):
                         return_tensors="pt"
                     ).to(self._model.device)
                     
-                    # If apply_chat_template didn't include pixel_values, generate them manually
+                    # Ensure pixel_values are present and correctly typed
                     if "pixel_values" not in inputs and images:
-                        pixel_values = self._processor(images=images, return_tensors="pt")["pixel_values"]
-                        inputs["pixel_values"] = pixel_values.to(self._model.device)
-
+                         pixel_values = self._processor(images=images, return_tensors="pt")["pixel_values"]
+                         inputs["pixel_values"] = pixel_values.to(self._model.device)
+                    
                     if "pixel_values" in inputs:
-                        inputs["pixel_values"] = inputs["pixel_values"].to(self._model.dtype)
+                         inputs["pixel_values"] = inputs["pixel_values"].to(self._model.dtype)
                 except Exception as e:
                     logger.warning(f"apply_chat_template failed: {e}. Falling back to manual formatting.")
                     inputs = None
 
             if inputs is None:
                 # Fallback to manual formatting
-                final_prompt = prompt
-                num_images = len(images) if images else 0
-                if isinstance(prompt, list):
-                    final_prompt = self.format_chat_prompt(prompt, num_images=num_images)
-                
+                final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
                 inputs = self._processor(
                     text=[final_prompt],
                     images=images,
@@ -387,22 +358,15 @@ class TransformersEngine(BaseEngine):
                     padding=True
                 ).to(self._model.device)
         else:
-            # Text-only input or engine without multimodal support
+            # Text-only or no processor available
             final_prompt = prompt
             if isinstance(prompt, list):
                 final_prompt = self.format_chat_prompt(prompt, num_images=0)
             
-            if self._processor:
-                 inputs = self._processor(
-                    text=[final_prompt],
-                    images=None,
-                    return_tensors="pt"
-                ).to(self._model.device)
-            elif self._tokenizer:
-                inputs = self._tokenizer(
-                    final_prompt, 
-                    return_tensors="pt"
-                ).to(self._model.device)
+            if self._tokenizer:
+                inputs = self._tokenizer(final_prompt, return_tensors="pt").to(self._model.device)
+            elif self._processor:
+                inputs = self._processor(text=[final_prompt], return_tensors="pt").to(self._model.device)
 
         streamer = TextIteratorStreamer(
             self._processor.tokenizer if self._processor else self._tokenizer,
