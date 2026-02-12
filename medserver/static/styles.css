@@ -1069,7 +1069,7 @@ textarea {
     background: rgba(255, 255, 255, 0.03);
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--text-dim);
+    color: var(--text-regular);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1097,7 +1097,6 @@ textarea {
     padding: 12px;
     font-size: 0.9rem;
     color: var(--text-muted);
-    /* Keeping this at a slightly dimmer level */
     font-style: italic;
     border-top: 1px solid var(--border);
     line-height: 1.6;
