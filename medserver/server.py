@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image as PILImage
 
 from medserver import __version__, __app_name__
 from medserver.engine import MedGemmaEngine, get_gpu_info
@@ -144,11 +146,6 @@ def create_app(
         images = []
         last_images_data = None
         
-        from PIL import Image as PILImage
-        import base64
-        import io
-        import threading
-
         for m in request.messages:
             full_messages.append({"role": m.role, "content": m.content})
             if m.image_data and model_info.supports_images:
@@ -209,6 +206,7 @@ def create_app(
 
     @app.post("/api/analyze")
     async def analyze_image(
+        raw_request: Request,
         image: UploadFile = File(...),
         prompt: str = Form("Analyze this medical image and provide clinical findings."),
         max_tokens: int = Form(2048),
@@ -233,7 +231,6 @@ def create_app(
             raise HTTPException(400, "Image too large. Max 20MB.")
 
         try:
-            from PIL import Image as PILImage
             pil_image = PILImage.open(io.BytesIO(contents)).convert("RGB")
         except Exception:
             raise HTTPException(400, "Invalid image format.")
