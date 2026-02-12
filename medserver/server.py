@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from medserver import __version__, __app_name__
@@ -29,13 +29,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # Clinical system prompt for MedGemma
 SYSTEM_PROMPT = (
-    "You are a clinical AI assistant powered by MedGemma. "
-    "You provide evidence-based medical information to support healthcare "
-    "professionals in their clinical decision-making. "
-    "Always note that your outputs require professional validation and "
-    "should not replace clinical judgment. "
-    "Be thorough, cite medical evidence when possible, and clearly state "
-    "limitations or uncertainties in your analysis."
+    "You are MedGemma, a specialized clinical AI assistant. "
+    "Your goal is to provide precise, evidence-based medical information to healthcare professionals. "
+    "Structure your responses clearly using clinical terminology. "
+    "Always clarify that your analysis is for decision support and requires validation by a qualified clinician."
 )
 
 
@@ -57,6 +54,16 @@ def create_app(
         version=__version__,
         description="Self-hosted MedGemma clinical AI server",
     )
+
+    # Global Error Handling
+    @app.exception_handler(RuntimeError)
+    async def cuda_error_handler(request: Request, exc: RuntimeError):
+        if "out of memory" in str(exc).lower():
+            return JSONResponse(
+                status_code=507,
+                content={"detail": "GPU Out of Memory. Try using quantization (-q) or a smaller model."},
+            )
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     # Wide-open CORS for LAN access
     app.add_middleware(

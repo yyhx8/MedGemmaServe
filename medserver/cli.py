@@ -15,13 +15,13 @@ import sys
 import textwrap
 
 BANNER = r"""
-  __  __          _ ____
- |  \/  | ___  __| / ___|  ___ _ ____   _____ _ __
- | |\/| |/ _ \/ _` \___ \ / _ \ '__\ \ / / _ \ '__|
- | |  | |  __/ (_| |___) |  __/ |   \ V /  __/ |
- |_|  |_|\___|\__,_|____/ \___|_|    \_/ \___|_|
+   __  __           _ ____
+  |  \/  | ___   __| / ___|  ___ _ __  __   __  ___
+  | |\/| |/ _ \ / _` \___ \ / _ \ '__| \ \ / / / _ \
+  | |  | |  __/| (_| |___) |  __/ |     \ V / |  __/
+  |_|  |_|\___| \__,_|____/ \___|_|      \_/   \___|
 
-  MedGemma Clinical AI Server v{version}
+  [ MedGemma Clinical AI Server — v{version} ]
 """
 
 
@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
         """),
     )
 
+    from medserver import __version__
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version=f"MedServer {__version__}",
+    )
     parser.add_argument(
         "-p", "--port",
         type=int,

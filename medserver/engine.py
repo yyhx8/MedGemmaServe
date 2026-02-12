@@ -204,27 +204,29 @@ class TransformersEngine(BaseEngine):
         start = time.monotonic()
 
         # Determine optimal compute dtype
-        compute_dtype = torch.float32
+        # NOTE: MedGemma (Gemma 2/3) is unstable in float16 (NaN errors).
+        # We must use bfloat16 (Ampere+) or float32 (T4/Older).
+        major, minor = (0, 0)
         if torch.cuda.is_available():
-            major, _ = torch.cuda.get_device_capability()
-            if major >= 8:
-                compute_dtype = torch.bfloat16
-            else:
-                compute_dtype = torch.float16 # Still try fp16 for speed, but will check compute_dtype below
+            major, minor = torch.cuda.get_device_capability()
+        
+        if major >= 8:
+            compute_dtype = torch.bfloat16
+            logger.info(f"Using bfloat16 precision (Compute Capability {major}.{minor} detected)")
+        else:
+            compute_dtype = torch.float32
+            logger.info(f"Falling back to float32 for stability (CC {major}.{minor} lacks stable float16 for Gemma)")
 
         # Quantization config
         quantization_config = None
         if self.quantize:
-            # This prevents the "probability tensor contains NaN" error
-            major, _ = torch.cuda.get_device_capability() if torch.cuda.is_available() else (0,0)
-            target_compute_dtype = torch.float16 if major >= 8 else torch.float32
-            
             quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
-                bnb_4bit_compute_dtype=target_compute_dtype,
+                bnb_4bit_compute_dtype=compute_dtype,
                 bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
             )
-            logger.info(f"Using 4-bit BitsAndBytes quantization (compute_dtype={target_compute_dtype})")
+            logger.info(f"Enabling 4-bit quantization (compute_dtype={compute_dtype})")
 
         # Load Tokenizer/Processor
         try:
@@ -241,17 +243,14 @@ class TransformersEngine(BaseEngine):
             raise
 
         # Load Model
-        # We use float32 for the model weights if not quantized and on older HW
-        major, _ = torch.cuda.get_device_capability() if torch.cuda.is_available() else (0,0)
-        torch_dtype = torch.bfloat16 if major >= 8 else torch.float32
-
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
             quantization_config=quantization_config,
             device_map="auto",
             trust_remote_code=True,
             token=self.hf_token,
-            torch_dtype=torch_dtype,
+            torch_dtype=compute_dtype,
+            low_cpu_mem_usage=True,
         )
 
         self._load_time = time.monotonic() - start
