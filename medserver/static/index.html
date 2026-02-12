@@ -9,12 +9,14 @@
 </head>
 <body>
     <div class="app-bg"></div>
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
 
     <!-- Loading Screen -->
     <div class="loading-screen" id="loadingScreen">
         <div class="spinner"></div>
         <div style="font-weight: 500; font-size: 1.1rem;">MedServer</div>
         <div id="loadingSubtext" style="color: var(--text-muted); font-size: 0.9rem;">Initializing...</div>
+        <button class="btn-retry" onclick="window.location.reload()">Retry Connection</button>
     </div>
 
     <!-- Disclaimer Modal -->
@@ -61,7 +63,7 @@
                 </div>
 
                 <!-- Minimal Info Widget -->
-                <div class="sidebar-section" style="border-top: 1px solid var(--border); padding-top: 20px;">
+                <div class="sidebar-section info-widget" style="border-top: 1px solid var(--border); padding-top: 20px;">
                     <div class="sidebar-label">Active Engine</div>
                     <div id="modelName" style="font-size: 0.85rem; font-weight: 500; color: var(--text-main); margin-bottom: 4px;">--</div>
                     <div id="modelBadges" style="display: flex; gap: 4px; margin-bottom: 12px;"></div>
@@ -82,12 +84,19 @@
                     </div>
                 </div>
             </div>
+
+            <div class="sidebar-footer">
+                <button id="clearHistoryBtn" class="btn-ghost">
+                    <span>🗑️</span> Clear History
+                </button>
+            </div>
         </aside>
 
         <!-- Main Area -->
         <main class="main-content">
             <header class="main-header">
                 <div style="display: flex; align-items: center; gap: 12px;">
+                    <button id="sidebarToggle" class="sidebar-toggle">☰</button>
                     <div class="status-indicator">
                         <div class="status-dot" id="statusDot"></div>
                         <span id="statusText">Connecting</span>
@@ -99,29 +108,14 @@
             </header>
 
             <div class="chat-container" id="chatContainer">
-                <!-- Welcome Screen (populated by app.js or initial) -->
-                <div class="welcome-overlay" id="welcomeScreen">
-                    <div class="welcome-title">MedGemma AI</div>
-                    <p class="welcome-desc">Specialized clinical intelligence for research and decision support.</p>
-                    <div class="quick-actions">
-                        <div class="action-card quick-prompt" data-prompt="Common differential diagnoses for acute chest pain?">
-                            <div style="font-size: 1.2rem; margin-bottom: 8px;">🫀</div>
-                            <div style="font-weight: 500; font-size: 0.85rem;">Cardiovascular</div>
-                            <div style="font-size: 0.75rem; color: var(--text-dim);">Chest pain differentials</div>
-                        </div>
-                        <div class="action-card quick-prompt" data-prompt="Summarize management guidelines for T2DM in elderly.">
-                            <div style="font-size: 1.2rem; margin-bottom: 8px;">📋</div>
-                            <div style="font-weight: 500; font-size: 0.85rem;">Metabolic</div>
-                            <div style="font-size: 0.75rem; color: var(--text-dim);">T2DM guidelines</div>
-                        </div>
-                    </div>
-                </div>
+                <div id="imageUploadArea" style="position: absolute; inset: 0; pointer-events: none; border: 2px dashed transparent; transition: all 0.2s ease;"></div>
+                <!-- Welcome Screen (populated by app.js) -->
             </div>
 
-            <!-- Image Preview Floating (when selected) -->
-            <div id="imagePreviewContainer" class="hidden" style="position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: var(--bg-subtle); border: 1px solid var(--accent); border-radius: 12px; padding: 8px; z-index: 10;">
-                <img id="imagePreview" style="max-height: 120px; border-radius: 8px;">
-                <div style="display: flex; gap: 4px; margin-top: 8px;">
+            <!-- Image Preview Floating -->
+            <div id="imagePreviewContainer" class="hidden" style="position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: var(--bg-subtle); border: 1px solid var(--accent); border-radius: 12px; padding: 8px; z-index: 10; display: flex; flex-direction: column; align-items: center;">
+                <img id="imagePreview" style="max-height: 120px; border-radius: 8px; margin-bottom: 8px;">
+                <div style="display: flex; gap: 4px; width: 100%;">
                     <button id="analyzeBtn" class="btn-send" style="flex: 1; height: 32px; font-size: 0.75rem;">🔬 Analyze</button>
                     <button id="removeImageBtn" style="width: 32px; height: 32px; background: #3f3f46; border: none; border-radius: 8px; color: white;">✕</button>
                 </div>
@@ -144,7 +138,7 @@
 
     <!-- Hidden Inputs -->
     <input type="file" id="imageInput" hidden accept="image/*">
-    <div id="imageSection" style="display:none"></div> <!-- Legacy placeholder for app.js -->
+    <div id="imageSection" style="display:none"></div>
     <div id="modelId" style="display:none"></div>
     <div id="serverUptime" style="display:none"></div>
 
