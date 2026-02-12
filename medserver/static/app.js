@@ -360,9 +360,10 @@
             if (state.messages.length === 0) {
                 showWelcomeScreen();
             } else {
-                state.messages.forEach(msg => {
-                    addMessage(msg.role, msg.content, null, false);
+                state.messages.forEach((msg, idx) => {
+                    addMessage(msg.role, msg.content, msg.imageData || null, false, idx);
                 });
+                renderRegenerateButton();
                 scrollToBottom();
             }
         }
@@ -484,10 +485,11 @@
         if (els.gpuVram) els.gpuVram.textContent = data.gpu_vram_gb ? `${data.gpu_vram_gb} GB` : '--';
         if (els.serverUptime) els.serverUptime.textContent = formatUptime(data.uptime_seconds);
 
-        if (els.uploadBtn) {
-            els.uploadBtn.style.opacity = data.supports_images ? '1' : '0.3';
-            els.uploadBtn.style.pointerEvents = data.supports_images ? 'all' : 'none';
-        }
+        const uploadBtns = $$('.upload-btn, .attach-btn');
+        uploadBtns.forEach(btn => {
+            btn.style.opacity = data.supports_images ? '1' : '0.3';
+            btn.style.pointerEvents = data.supports_images ? 'all' : 'none';
+        });
     }
 
     function updateStatusOffline() {
@@ -551,8 +553,9 @@
         hideWelcomeScreen();
         closeSidebar();
 
-        addMessage('user', text, state.attachedImageData);
-        state.messages.push({ role: 'user', content: text });
+        const msgIdx = state.messages.length;
+        addMessage('user', text, state.attachedImageData, true, msgIdx);
+        state.messages.push({ role: 'user', content: text, imageData: state.attachedImageData });
         persistMessages();
 
         els.chatInput.value = '';
@@ -570,8 +573,11 @@
         els.sendBtn.innerHTML = '■';
         els.sendBtn.classList.add('stop');
         els.sendBtn.disabled = false;
+        
+        removeRegenerateButton();
 
-        const msgEl = addMessage('assistant', '');
+        const assistantMsgIdx = state.messages.length;
+        const msgEl = addMessage('assistant', '', null, true, assistantMsgIdx);
         const contentEl = msgEl.querySelector('.message-content .content-text');
 
         contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
@@ -581,7 +587,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    messages: state.messages,
+                    messages: state.messages.map(m => ({ role: m.role, content: m.content })),
                     max_tokens: 2048,
                     temperature: 0.3,
                     stream: true,
@@ -632,6 +638,7 @@
 
             state.messages.push({ role: 'assistant', content: fullText });
             persistMessages();
+            renderRegenerateButton();
 
         } catch (err) {
             contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
@@ -691,7 +698,8 @@
         hideWelcomeScreen();
         closeSidebar();
 
-        addMessage('user', promptText, state.attachedImageData);
+        const userIdx = state.messages.length;
+        addMessage('user', promptText, state.attachedImageData, true, userIdx);
 
         const formData = new FormData();
         formData.append('image', state.attachedImage);
@@ -707,8 +715,11 @@
             els.sendBtn.innerHTML = '■';
             els.sendBtn.classList.add('stop');
         }
+        
+        removeRegenerateButton();
 
-        const msgEl = addMessage('assistant', '');
+        const assistantIdx = userIdx + 1;
+        const msgEl = addMessage('assistant', '', null, true, assistantIdx);
         const contentEl = msgEl.querySelector('.message-content .content-text');
         contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
@@ -756,10 +767,11 @@
             }
 
             state.messages.push(
-                { role: 'user', content: `[Image Analysis] ${promptText}` },
+                { role: 'user', content: `[Image Analysis] ${promptText}`, imageData: state.attachedImageData },
                 { role: 'assistant', content: fullText }
             );
             persistMessages();
+            renderRegenerateButton();
 
         } catch (err) {
             contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
@@ -815,12 +827,134 @@
         if (ws) ws.style.display = 'none';
     }
 
+    // ── Message Actions ───────────────────────────────────
+    async function editMessage(index) {
+        if (state.isStreaming) return;
+        const msg = state.messages[index];
+        const msgEl = $$('.message')[index];
+        if (!msgEl) return;
+
+        const contentText = msgEl.querySelector('.content-text');
+        const originalHtml = contentText.innerHTML;
+
+        contentText.innerHTML = `
+            <textarea class="edit-textarea">${msg.content}</textarea>
+            <div class="edit-controls">
+                <button class="btn-small btn-cancel">Cancel</button>
+                <button class="btn-small btn-save">Save & Submit</button>
+            </div>
+        `;
+
+        const textarea = contentText.querySelector('.edit-textarea');
+        textarea.style.height = textarea.scrollHeight + 'px';
+        textarea.focus();
+
+        contentText.querySelector('.btn-cancel').addEventListener('click', () => {
+            contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(msg.content) : escapeHtml(msg.content);
+        });
+
+        contentText.querySelector('.btn-save').addEventListener('click', async () => {
+            const newContent = textarea.value.trim();
+            if (newContent && newContent !== msg.content) {
+                // Update message and remove all subsequent messages
+                state.messages[index].content = newContent;
+                state.messages = state.messages.slice(0, index + 1);
+                
+                // Refresh UI
+                els.chatContainer.innerHTML = '';
+                state.messages.forEach((m, idx) => {
+                    addMessage(m.role, m.content, m.imageData || null, false, idx);
+                });
+                
+                persistMessages();
+                
+                if (msg.role === 'user') {
+                    await streamChat();
+                } else {
+                    renderRegenerateButton();
+                }
+            } else {
+                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(msg.content) : escapeHtml(msg.content);
+            }
+        });
+    }
+
+    function deleteMessage(index) {
+        if (state.isStreaming) return;
+        state.messages.splice(index, 1);
+        persistMessages();
+        
+        els.chatContainer.innerHTML = '';
+        if (state.messages.length === 0) {
+            showWelcomeScreen();
+        } else {
+            state.messages.forEach((m, idx) => {
+                addMessage(m.role, m.content, m.imageData || null, false, idx);
+            });
+            renderRegenerateButton();
+        }
+    }
+
+    async function regenerateResponse() {
+        if (state.isStreaming || state.messages.length === 0) return;
+        
+        // Find last user message
+        let lastUserIdx = -1;
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+            if (state.messages[i].role === 'user') {
+                lastUserIdx = i;
+                break;
+            }
+        }
+        
+        if (lastUserIdx === -1) return;
+        
+        // Remove all messages after last user message
+        state.messages = state.messages.slice(0, lastUserIdx + 1);
+        
+        // Refresh UI
+        els.chatContainer.innerHTML = '';
+        state.messages.forEach((m, idx) => {
+            addMessage(m.role, m.content, m.imageData || null, false, idx);
+        });
+        
+        await streamChat();
+    }
+
+    function renderRegenerateButton() {
+        removeRegenerateButton();
+        if (state.messages.length === 0) return;
+        
+        const lastMsg = state.messages[state.messages.length - 1];
+        if (lastMsg.role !== 'assistant') return;
+        
+        const container = document.createElement('div');
+        container.className = 'regenerate-container';
+        container.id = 'regenerateContainer';
+        container.innerHTML = `
+            <button class="btn-regenerate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Regenerate response
+            </button>
+        `;
+        
+        els.chatContainer.appendChild(container);
+        container.querySelector('.btn-regenerate').addEventListener('click', regenerateResponse);
+        scrollToBottom();
+    }
+
+    function removeRegenerateButton() {
+        const el = $('#regenerateContainer');
+        if (el) el.remove();
+    }
+
     // ── Message Rendering ─────────────────────────────────
-    function addMessage(role, text, imageDataUrl, animate = true) {
+    function addMessage(role, text, imageDataUrl, animate = true, index) {
         if (!els.chatContainer) return;
         
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role}`;
+        msgDiv.dataset.index = index;
         if (!animate) msgDiv.style.animation = 'none';
 
         const avatarIcon = role === 'assistant' ? 'M' : '👤';
@@ -833,12 +967,36 @@
         msgDiv.innerHTML = `
             <div class="message-avatar">${avatarIcon}</div>
             <div class="message-content">
+                <div class="message-actions">
+                    <button class="action-btn copy-btn" title="Copy">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    </button>
+                    <button class="action-btn edit-btn" title="Edit">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </button>
+                    <button class="action-btn delete-btn" title="Delete">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
                 ${imageHtml}
                 <div class="content-text">${role === 'assistant' ? renderMarkdown(text) : escapeHtml(text)}</div>
             </div>
         `;
 
         els.chatContainer.appendChild(msgDiv);
+        
+        // Bind actions
+        msgDiv.querySelector('.copy-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(text);
+            const btn = msgDiv.querySelector('.copy-btn');
+            const oldHtml = btn.innerHTML;
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            setTimeout(() => btn.innerHTML = oldHtml, 2000);
+        });
+        
+        msgDiv.querySelector('.edit-btn').addEventListener('click', () => editMessage(index));
+        msgDiv.querySelector('.delete-btn').addEventListener('click', () => deleteMessage(index));
+
         scrollToBottom();
         return msgDiv;
     }

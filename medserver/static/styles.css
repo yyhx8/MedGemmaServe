@@ -333,10 +333,10 @@ body {
     background: #121214;
     border: 1px solid var(--border-bright);
     border-radius: 20px;
-    padding: 8px 12px 8px 20px;
+    padding: 8px 12px;
     display: flex;
     align-items: flex-end;
-    gap: 12px;
+    gap: 8px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
     transition: all 0.3s ease;
 }
@@ -346,6 +346,26 @@ body {
     box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.1);
 }
 
+.attach-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.attach-btn:hover {
+    background: var(--bg-subtle);
+    color: var(--text-main);
+}
+
 textarea {
     flex: 1;
     background: transparent;
@@ -353,7 +373,7 @@ textarea {
     color: var(--text-main);
     font-family: inherit;
     font-size: 1rem;
-    padding: 12px 0;
+    padding: 10px 4px;
     outline: none;
     resize: none;
     max-height: 200px;
@@ -378,7 +398,124 @@ textarea {
 .btn-send:disabled { opacity: 0.3; cursor: not-allowed; }
 .btn-send.stop { background: var(--status-alert); color: white; }
 
-/* ---- Loading & Modals ---- */
+/* Message Actions */
+.message-content {
+    position: relative;
+    flex: 1;
+    font-size: 1rem;
+    line-height: 1.7;
+    color: var(--text-main);
+    min-width: 0;
+    overflow-wrap: break-word;
+}
+
+.message-actions {
+    position: absolute;
+    top: -10px;
+    right: 0;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform: translateY(4px);
+    pointer-events: none;
+}
+
+.message:hover .message-actions {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: all;
+}
+
+.action-btn {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+    background: var(--bg-subtle);
+    color: var(--text-main);
+    border-color: var(--accent);
+}
+
+.action-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Edit Mode */
+.edit-textarea {
+    width: 100%;
+    background: var(--bg-subtle);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    color: var(--text-main);
+    padding: 12px;
+    font-family: inherit;
+    font-size: 1rem;
+    outline: none;
+    resize: vertical;
+    margin-bottom: 8px;
+}
+
+.edit-controls {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+}
+
+.btn-save { background: var(--accent); color: var(--bg-base); }
+.btn-cancel { background: var(--bg-elevated); color: var(--text-main); }
+
+/* Regenerate Button in Chat Container */
+.regenerate-container {
+    max-width: var(--max-content-width);
+    margin: -16px auto 32px;
+    padding: 0 24px 0 80px;
+    display: flex;
+    animation: fadeIn 0.4s ease;
+}
+
+.btn-regenerate {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-regenerate:hover {
+    background: var(--bg-subtle);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.btn-regenerate svg { width: 14px; height: 14px; }
+
 .loading-screen {
     position: fixed;
     inset: 0;
