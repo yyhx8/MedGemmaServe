@@ -41,6 +41,18 @@
     const SYSTEM_PROMPT_KEY = 'medserver_system_prompt';
 
     /**
+     * Helper to extract text from message content (which can be a string or array of objects).
+     */
+    function getMessageText(content) {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+            const textItem = content.find(item => item.type === 'text');
+            return textItem ? textItem.text : "";
+        }
+        return String(content || "");
+    }
+
+    /**
      * Chat storage manager using localStorage.
      * Each chat: { id, title, messages[], createdAt, updatedAt }
      */
@@ -106,7 +118,8 @@
             if (!chats[id]._titled && messages.length > 0) {
                 const firstUser = messages.find(m => m.role === 'user');
                 if (firstUser) {
-                    chats[id].title = firstUser.content.slice(0, 60) + (firstUser.content.length > 60 ? '…' : '');
+                    const text = getMessageText(firstUser.content);
+                    chats[id].title = text.slice(0, 60) + (text.length > 60 ? '…' : '');
                     chats[id]._titled = true;
                 }
             }
@@ -887,10 +900,10 @@
         if (!msgEl) return;
 
         const contentText = msgEl.querySelector('.content-text');
-        const originalHtml = contentText.innerHTML;
+        const currentText = getMessageText(msg.content);
 
         contentText.innerHTML = `
-            <textarea class="edit-textarea">${msg.content}</textarea>
+            <textarea class="edit-textarea">${escapeHtml(currentText)}</textarea>
             <div class="edit-controls">
                 <button class="btn-small btn-cancel">Cancel</button>
                 <button class="btn-small btn-save">Save & Submit</button>
@@ -902,14 +915,32 @@
         textarea.focus();
 
         contentText.querySelector('.btn-cancel').addEventListener('click', () => {
-            contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(msg.content) : escapeHtml(msg.content);
+            const text = getMessageText(msg.content);
+            contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text);
         });
 
         contentText.querySelector('.btn-save').addEventListener('click', async () => {
             const newContent = textarea.value.trim();
-            if (newContent && newContent !== msg.content) {
+            if (newContent && newContent !== currentText) {
                 // Update message and remove all subsequent messages
-                state.messages[index].content = newContent;
+                if (Array.isArray(msg.content)) {
+                    // Update text part in structured content while preserving other parts (like images)
+                    let found = false;
+                    const newContentArray = msg.content.map(item => {
+                        if (item.type === 'text') {
+                            found = true;
+                            return { ...item, text: newContent };
+                        }
+                        return item;
+                    });
+                    if (!found) {
+                        newContentArray.push({ type: 'text', text: newContent });
+                    }
+                    state.messages[index].content = newContentArray;
+                } else {
+                    state.messages[index].content = newContent;
+                }
+                
                 state.messages = state.messages.slice(0, index + 1);
                 
                 // Refresh UI
@@ -926,7 +957,8 @@
                     renderRegenerateButton();
                 }
             } else {
-                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(msg.content) : escapeHtml(msg.content);
+                const text = getMessageText(msg.content);
+                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text);
             }
         });
     }
@@ -1004,14 +1036,7 @@
     function addMessage(role, content, imageDataUrls, animate = true, index) {
         if (!els.chatContainer) return;
         
-        let text = "";
-        if (typeof content === 'string') {
-            text = content;
-        } else if (Array.isArray(content)) {
-            // Extract text from structured content
-            const textItem = content.find(item => item.type === 'text');
-            text = textItem ? textItem.text : "";
-        }
+        const text = getMessageText(content);
 
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role}`;

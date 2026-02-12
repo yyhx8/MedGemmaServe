@@ -235,15 +235,13 @@ def create_app(
         except Exception:
             raise HTTPException(400, "Invalid image format.")
 
-        # Format prompt with image placeholder for Gemma
-        full_prompt = engine.format_chat_prompt(
-            [{"role": "user", "content": prompt}],
-            system_prompt=SYSTEM_PROMPT,
-            num_images=1
-        )
+        # Pass messages as a list to allow the engine to use apply_chat_template
+        messages = [{"role": "user", "content": prompt}]
+        if SYSTEM_PROMPT:
+             messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
         return StreamingResponse(
-            _stream_analyze(raw_request, full_prompt, [pil_image], max_tokens, temperature),
+            _stream_analyze(raw_request, messages, [pil_image], max_tokens, temperature),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -254,7 +252,7 @@ def create_app(
 
     async def _stream_analyze(
         request: Request,
-        prompt: str,
+        messages: list,
         images: list,
         max_tokens: int,
         temperature: float,
@@ -262,7 +260,7 @@ def create_app(
         """SSE stream generator for image analysis."""
         try:
             async for token in engine.stream_generate(
-                prompt=prompt,
+                prompt=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 images=images,

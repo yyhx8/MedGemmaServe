@@ -88,10 +88,11 @@ class BaseEngine(ABC):
         """Format messages into Gemma chat template."""
         parts = []
 
-        # PaliGemma Specific: The <image> tokens MUST be at the very beginning of the entire prompt.
+        # PaliGemma/MedGemma Specific: The <image> tokens MUST be at the very beginning of the entire prompt.
         image_prefix = ""
         if num_images > 0:
-             image_prefix = "<image>" * num_images
+             # MedGemma 1.5/PaliGemma 2 often expects image tokens followed by a newline
+             image_prefix = "<image>" * num_images + "\n"
 
         # Extract system prompt from messages if not provided explicitly
         if not system_prompt:
@@ -232,6 +233,7 @@ class TransformersEngine(BaseEngine):
     async def load(self) -> None:
         from transformers import (
             AutoModelForCausalLM,
+            AutoModelForImageTextToText,
             AutoTokenizer,
             AutoProcessor,
             BitsAndBytesConfig,
@@ -285,7 +287,10 @@ class TransformersEngine(BaseEngine):
             raise
 
         # Load Model
-        self._model = AutoModelForCausalLM.from_pretrained(
+        # Use AutoModelForImageTextToText for multimodal models (MedGemma 1.5)
+        model_class = AutoModelForImageTextToText if self.supports_images else AutoModelForCausalLM
+        
+        self._model = model_class.from_pretrained(
             self.model_id,
             quantization_config=quantization_config,
             device_map="auto",
@@ -312,24 +317,77 @@ class TransformersEngine(BaseEngine):
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
 
-        # For MedGemma/Gemma, we use our manual formatter to ensure 
-        # system prompt and image token injection are handled correctly.
-        final_prompt = prompt
-        if isinstance(prompt, list):
-            final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
-
         # Prepare inputs
         inputs = None
+        
+        # Multimodal input handling
         if self.supports_images and self._processor and images:
-            # Multimodal input handling: images is a list of PIL images
-            inputs = self._processor(
-                text=[final_prompt],
-                images=images,
-                return_tensors="pt",
-                padding=True
-            ).to(self._model.device)
+            # Try to use processor's apply_chat_template (preferred for MedGemma 1.5)
+            if hasattr(self._processor, "apply_chat_template") and isinstance(prompt, list):
+                try:
+                    formatted_messages = []
+                    image_added = False
+                    for msg in prompt:
+                        role = msg.get("role")
+                        content = msg.get("content", "")
+                        
+                        if role == "user" and not image_added:
+                            new_content = []
+                            for img in images:
+                                new_content.append({"type": "image", "image": img})
+                            
+                            if isinstance(content, list):
+                                new_content.extend([c for c in content if c.get("type") == "text"])
+                            else:
+                                new_content.append({"type": "text", "text": content})
+                            
+                            image_added = True
+                            formatted_messages.append({"role": role, "content": new_content})
+                        else:
+                            # Standard text content
+                            if isinstance(content, list):
+                                text_content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
+                                formatted_messages.append({"role": role, "content": text_content})
+                            else:
+                                formatted_messages.append({"role": role, "content": content})
+                    
+                    inputs = self._processor.apply_chat_template(
+                        formatted_messages,
+                        add_generation_prompt=True,
+                        tokenize=True,
+                        return_dict=True,
+                        return_tensors="pt"
+                    ).to(self._model.device)
+                    
+                    # If apply_chat_template didn't include pixel_values, generate them manually
+                    if "pixel_values" not in inputs and images:
+                        pixel_values = self._processor(images=images, return_tensors="pt")["pixel_values"]
+                        inputs["pixel_values"] = pixel_values.to(self._model.device)
+
+                    if "pixel_values" in inputs:
+                        inputs["pixel_values"] = inputs["pixel_values"].to(self._model.dtype)
+                except Exception as e:
+                    logger.warning(f"apply_chat_template failed: {e}. Falling back to manual formatting.")
+                    inputs = None
+
+            if inputs is None:
+                # Fallback to manual formatting
+                final_prompt = prompt
+                if isinstance(prompt, list):
+                    final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
+                
+                inputs = self._processor(
+                    text=[final_prompt],
+                    images=images,
+                    return_tensors="pt",
+                    padding=True
+                ).to(self._model.device)
         else:
-            # Text-only input
+            # Text-only input or engine without multimodal support
+            final_prompt = prompt
+            if isinstance(prompt, list):
+                final_prompt = self.format_chat_prompt(prompt, num_images=0)
+            
             if self._processor:
                  inputs = self._processor(
                     text=[final_prompt],
