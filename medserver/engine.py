@@ -52,17 +52,18 @@ class BaseEngine(ABC):
     @abstractmethod
     async def stream_generate(
         self,
-        prompt: str,
+        prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
         images: Optional[list] = None,
+        stop_event: Optional[threading.Event] = None,
     ) -> AsyncIterator[str]:
         """Stream tokens as they are generated."""
         pass
 
     async def generate(
         self,
-        prompt: str,
+        prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
         images: Optional[list] = None,
@@ -87,6 +88,12 @@ class BaseEngine(ABC):
         """Format messages into Gemma chat template."""
         parts = []
 
+        # PaliGemma Specific: The <image> tokens MUST be at the very beginning of the entire prompt.
+        # However, for instruction-tuned variants, it's often best to keep them as a tight prefix.
+        image_prefix = ""
+        if num_images > 0:
+             image_prefix = "<image>" * num_images
+
         # System prompt as first user context if provided
         if system_prompt:
             # We add a virtual user turn for the system prompt
@@ -97,8 +104,6 @@ class BaseEngine(ABC):
             content = msg.get("content", "")
 
             if role == "user":
-                # For Gemma chat models, we stick to the template.
-                # The <image> tokens are handled as a prefix below.
                 parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
             elif role == "assistant":
                 parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
@@ -108,11 +113,9 @@ class BaseEngine(ABC):
         
         full_prompt = "\n".join(parts)
         
-        # PaliGemma Specific: The <image> tokens MUST be at the very beginning of the entire prompt.
-        # We prepend as many <image> tokens as there are images.
-        if num_images > 0:
-             image_prefix = "<image>" * num_images
-             full_prompt = image_prefix + "\n" + full_prompt
+        if image_prefix:
+            # Prepend without an extra newline to ensure it's at the absolute start
+            full_prompt = image_prefix + full_prompt
 
         return full_prompt
 
@@ -156,23 +159,26 @@ class SGLangEngine(BaseEngine):
 
     async def stream_generate(
         self,
-        prompt: str,
+        prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
         images: Optional[list] = None,
+        stop_event: Optional[threading.Event] = None,
     ) -> AsyncIterator[str]:
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
 
-        # SGLang generation request
-        # This API is hypothetical based on common patterns, sglang usage might vary
-        # adapting to sglang's `async_generate` or similar.
-        
-        # NOTE: SGLang often runs as a server. If using the embedded Engine (Runtime),
-        # we typically interact via `engine.generate`.
-        
+        # SGLang usually handles OpenAI-style message lists.
+        # If it's a list, we pass it as 'messages' if the engine supports it, 
+        # or format it to string.
+        final_prompt = prompt
+        if isinstance(prompt, list):
+             # For simplicity in this factory, we'll format it to string using our manual template
+             # as SGLang setup varies.
+             final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
+
         # Construct input
-        inputs = {"text": prompt}
+        inputs = {"text": final_prompt}
         if images and self.supports_images:
              # SGLang image handling logic
              inputs["image_data"] = images
@@ -272,23 +278,40 @@ class TransformersEngine(BaseEngine):
 
     async def stream_generate(
         self,
-        prompt: str,
+        prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
         images: Optional[list] = None,
+        stop_event: Optional[threading.Event] = None,
     ) -> AsyncIterator[str]:
-        from transformers import TextIteratorStreamer
+        from transformers import TextIteratorStreamer, StoppingCriteria, StoppingCriteriaList
 
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
+
+        # Resolve prompt if it's a list of messages
+        final_prompt = prompt
+        if isinstance(prompt, list):
+            if self._processor and hasattr(self._processor, "apply_chat_template"):
+                try:
+                    final_prompt = self._processor.apply_chat_template(
+                        prompt, 
+                        add_generation_prompt=True, 
+                        tokenize=False
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to apply chat template: {e}. Falling back to manual formatting.")
+                    # Manual fallback if template fails
+                    final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
+            else:
+                final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
 
         # Prepare inputs
         inputs = None
         if self.supports_images and self._processor and images:
             # Multimodal input handling
-            text_prompt = prompt
             inputs = self._processor(
-                text=[text_prompt],
+                text=[final_prompt],
                 images=images,
                 return_tensors="pt",
                 padding=True
@@ -297,13 +320,13 @@ class TransformersEngine(BaseEngine):
             # Text-only input
             if self._processor:
                  inputs = self._processor(
-                    text=[prompt],
+                    text=[final_prompt],
                     images=None,
                     return_tensors="pt"
                 ).to(self._model.device)
             elif self._tokenizer:
                 inputs = self._tokenizer(
-                    prompt, 
+                    final_prompt, 
                     return_tensors="pt"
                 ).to(self._model.device)
 
@@ -313,6 +336,12 @@ class TransformersEngine(BaseEngine):
             skip_special_tokens=True
         )
 
+        class StopOnEvent(StoppingCriteria):
+            def __init__(self, event):
+                self.event = event
+            def __call__(self, input_ids, scores, **kwargs):
+                return self.event.is_set() if self.event else False
+
         do_sample = temperature > 0
         generation_kwargs = dict(
             **inputs,
@@ -320,6 +349,7 @@ class TransformersEngine(BaseEngine):
             max_new_tokens=max_tokens,
             do_sample=do_sample,
             pad_token_id=self._processor.tokenizer.pad_token_id if self._processor else self._tokenizer.pad_token_id,
+            stopping_criteria=StoppingCriteriaList([StopOnEvent(stop_event)]) if stop_event else None
         )
         
         if do_sample:
@@ -332,11 +362,16 @@ class TransformersEngine(BaseEngine):
         thread.start()
 
         # Yield tokens from streamer
-        for text in streamer:
-            yield text
-            await asyncio.sleep(0)
-            
-        thread.join()
+        try:
+            for text in streamer:
+                yield text
+                if stop_event and stop_event.is_set():
+                    break
+                await asyncio.sleep(0)
+        finally:
+            if stop_event:
+                stop_event.set()
+            thread.join()
 
 
 def get_gpu_info() -> dict:

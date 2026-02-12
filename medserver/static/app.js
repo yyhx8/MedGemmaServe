@@ -38,6 +38,7 @@
     // ── Chat Storage ─────────────────────────────────────
     const STORAGE_KEY = 'medserver_chats';
     const ACTIVE_CHAT_KEY = 'medserver_active_chat';
+    const SYSTEM_PROMPT_KEY = 'medserver_system_prompt';
 
     /**
      * Chat storage manager using localStorage.
@@ -60,6 +61,14 @@
 
         setActiveChatId(id) {
             safeStorage.set(ACTIVE_CHAT_KEY, id);
+        },
+
+        getSystemPrompt() {
+            return safeStorage.get(SYSTEM_PROMPT_KEY, '');
+        },
+
+        setSystemPrompt(prompt) {
+            safeStorage.set(SYSTEM_PROMPT_KEY, prompt);
         },
 
         list() {
@@ -132,6 +141,7 @@
         healthPollTimer: null,
         disclaimerAccepted: safeStorage.get('medserver_disclaimer') === 'accepted',
         abortController: null,
+        expandedThoughts: new Set(), // Track which thoughts are manually expanded: "msgIdx-thoughtIdx"
     };
 
     // ── DOM References ────────────────────────────────────
@@ -173,12 +183,22 @@
             chatInput: $('#chatInput'),
             sendBtn: $('#sendBtn'),
             tokenCounter: $('#tokenCounter'),
+            systemPromptInput: $('#systemPromptInput'),
+            jumpToBottomBtn: $('#jumpToBottomBtn'),
         };
     }
 
     // ── Initialization ────────────────────────────────────
     function init() {
         setupElements();
+        
+        if (els.systemPromptInput) {
+            els.systemPromptInput.value = ChatStore.getSystemPrompt();
+            els.systemPromptInput.addEventListener('input', () => {
+                ChatStore.setSystemPrompt(els.systemPromptInput.value);
+            });
+        }
+
         bindEvents();
         loadChatHistory();
         startHealthPolling();
@@ -213,8 +233,24 @@
             });
         });
 
-        // New chat
         if (els.newChatBtn) els.newChatBtn.addEventListener('click', startNewChat);
+
+        // Jump to bottom
+        if (els.jumpToBottomBtn) {
+            els.jumpToBottomBtn.addEventListener('click', () => {
+                if (els.chatContainer) {
+                    els.chatContainer.scrollTo({
+                        top: els.chatContainer.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        }
+
+        // Scroll monitoring for jump button
+        if (els.chatContainer) {
+            els.chatContainer.addEventListener('scroll', updateJumpToBottomVisibility);
+        }
 
         // Clear history
         if (els.clearHistoryBtn) {
@@ -266,6 +302,18 @@
             if (els.sidebarOverlay) {
                 els.sidebarOverlay.style.display = 'none';
             }
+        }
+    }
+
+    function updateJumpToBottomVisibility() {
+        if (!els.chatContainer || !els.jumpToBottomBtn) return;
+        const threshold = 200; // Show if more than 200px from bottom
+        const isNearBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) < threshold;
+        
+        if (isNearBottom) {
+            els.jumpToBottomBtn.classList.add('hidden');
+        } else {
+            els.jumpToBottomBtn.classList.remove('hidden');
         }
     }
 
@@ -356,6 +404,7 @@
 
         state.activeChatId = chatId;
         state.messages = [...chat.messages];
+        state.expandedThoughts.clear();
         ChatStore.setActiveChatId(chatId);
 
         // Render messages
@@ -385,6 +434,7 @@
         // Create and switch
         state.activeChatId = null;
         state.messages = [];
+        state.expandedThoughts.clear();
 
         // Clear UI
         if (els.chatContainer) {
@@ -552,7 +602,12 @@
 
     // ── Sending Messages ──────────────────────────────────
     async function onSend() {
-        if (state.isStreaming || !els.chatInput) return;
+        if (state.isStreaming) {
+            stopGeneration();
+            return;
+        }
+
+        if (!els.chatInput) return;
 
         const text = els.chatInput.value.trim();
         if (!text && state.attachedImagesData.length === 0) return;
@@ -564,10 +619,19 @@
         const msgIdx = state.messages.length;
         const currentImagesData = [...state.attachedImagesData];
         
+        // Structured content for the API
+        const structuredContent = [];
+        currentImagesData.forEach(() => {
+            structuredContent.push({ type: 'image' });
+        });
+        if (text) {
+            structuredContent.push({ type: 'text', text: text });
+        }
+
         addMessage('user', text, currentImagesData, true, msgIdx);
         state.messages.push({ 
             role: 'user', 
-            content: text || (currentImagesData.length > 0 ? `[${currentImagesData.length} Images]` : ""), 
+            content: structuredContent, 
             imageData: currentImagesData 
         });
         
@@ -585,11 +649,6 @@
     async function streamChat() {
         if (!els.sendBtn) return;
         
-        if (state.isStreaming) {
-            stopGeneration();
-            return;
-        }
-
         state.isStreaming = true;
         state.abortController = new AbortController();
         
@@ -616,6 +675,7 @@
                         content: m.content,
                         image_data: m.imageData || []
                     })),
+                    system_prompt: ChatStore.getSystemPrompt() || undefined,
                     max_tokens: 2048,
                     temperature: 0.3,
                     stream: true,
@@ -653,12 +713,14 @@
                     try {
                         const data = JSON.parse(payload);
                         if (data.error) {
-                            contentEl.innerHTML += `<span style="color:var(--status-alert)">\n\nError: ${data.error}</span>`;
-                            continue;
+                            contentEl.innerHTML = `<span style="color:var(--status-alert)">Error: ${data.error}</span>`;
+                            state.isStreaming = false;
+                            resetSendButton();
+                            return;
                         }
                         if (data.token) {
                             fullText += data.token;
-                            contentEl.innerHTML = renderMarkdown(fullText);
+                            contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx);
                             scrollToBottom();
                         }
                     } catch (_) { }
@@ -671,10 +733,13 @@
 
         } catch (err) {
             if (err.name === 'AbortError') {
+                // If it was still showing typing indicator, clear it
+                if (contentEl.querySelector('.typing-indicator')) {
+                    contentEl.innerHTML = '';
+                }
                 contentEl.innerHTML += ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
                 // Save partial response if any
                 if (contentEl.innerText.trim().length > 0) {
-                     // Filter out the "(stopped)" text and typing indicator for storage
                      const cleanedText = contentEl.innerText.replace('(stopped)', '').trim();
                      if (cleanedText) {
                          state.messages.push({ role: 'assistant', content: cleanedText });
@@ -936,9 +1001,18 @@
     }
 
     // ── Message Rendering ─────────────────────────────────
-    function addMessage(role, text, imageDataUrls, animate = true, index) {
+    function addMessage(role, content, imageDataUrls, animate = true, index) {
         if (!els.chatContainer) return;
         
+        let text = "";
+        if (typeof content === 'string') {
+            text = content;
+        } else if (Array.isArray(content)) {
+            // Extract text from structured content
+            const textItem = content.find(item => item.type === 'text');
+            text = textItem ? textItem.text : "";
+        }
+
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role}`;
         msgDiv.dataset.index = index;
@@ -973,7 +1047,7 @@
                     </button>
                 </div>
                 ${imagesHtml}
-                <div class="content-text">${role === 'assistant' ? renderMarkdown(text) : escapeHtml(text)}</div>
+                <div class="content-text">${role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text)}</div>
             </div>
         `;
 
@@ -995,8 +1069,13 @@
         return msgDiv;
     }
 
-    function scrollToBottom() {
-        if (els.chatContainer) {
+    function scrollToBottom(force = false) {
+        if (!els.chatContainer) return;
+        
+        const threshold = 150; // pixels from bottom
+        const isNearBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) < threshold;
+        
+        if (force || isNearBottom) {
             els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
         }
     }
@@ -1005,7 +1084,7 @@
     /**
      * Basic Markdown Parser with Code-Block Protection
      */
-    function renderMarkdown(text) {
+    function renderMarkdown(text, msgIdx = -1) {
         if (!text) return '';
         
         const thoughts = [];
@@ -1059,9 +1138,17 @@
 
         // 6. Restore Thinking Traces
         thoughts.forEach((thought, i) => {
+            const thoughtKey = `${msgIdx}-${i}`;
+            const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
+            const isProcessing = !thought.isClosed;
+            
+            // It should be collapsed if it's closed AND not manually expanded
+            // If it's processing, it should be visible (not collapsed)
+            const isCollapsed = thought.isClosed && !isManuallyExpanded;
+
             const thoughtHtml = `
-                <div class="thinking-trace ${!thought.isClosed ? 'processing' : 'collapsed'}">
-                    <div class="thinking-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <div class="thinking-trace ${isProcessing ? 'processing' : ''} ${isCollapsed ? 'collapsed' : ''}" data-thought-key="${thoughtKey}">
+                    <div class="thinking-header" onclick="window.toggleThought('${thoughtKey}', this.parentElement)">
                         Thinking Process
                     </div>
                     <div class="thinking-content">${escapeHtml(thought.content)}</div>
@@ -1077,6 +1164,18 @@
 
         return html;
     }
+
+    window.toggleThought = function(key, el) {
+        if (el.classList.contains('collapsed')) {
+            el.classList.remove('collapsed');
+            state.expandedThoughts.add(key);
+        } else {
+            el.classList.add('collapsed');
+            state.expandedThoughts.delete(key);
+        }
+        // If we were at the bottom before toggling, stay at the bottom
+        scrollToBottom();
+    };
 
     function escapeHtml(text) {
         const div = document.createElement('div');

@@ -1,7 +1,7 @@
 """Model registry and API schemas for MedServer."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union, List
 from pydantic import BaseModel
 
 
@@ -114,12 +114,13 @@ def list_models() -> list[dict]:
 
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
-    content: str
+    content: Union[str, List[dict]]
     image_data: Optional[list[str]] = None  # List of Base64 encoded image data
 
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
+    system_prompt: Optional[str] = None
     max_tokens: int = 2048
     temperature: float = 0.3
     stream: bool = True

@@ -55,6 +55,11 @@
                     </button>
                 </div>
 
+                <div class="sidebar-section">
+                    <div class="sidebar-label">System Prompt</div>
+                    <textarea id="systemPromptInput" class="sidebar-textarea" placeholder="Default clinical prompt..."></textarea>
+                </div>
+
                 <div class="sidebar-section" style="flex: 1;">
                     <div class="sidebar-label">Recent Chats</div>
                     <div id="chatHistoryList" class="chat-history-list">
@@ -108,6 +113,11 @@
                 <div id="imageUploadArea" style="position: absolute; inset: 0; pointer-events: none; border: 2px dashed transparent; transition: all 0.2s ease;"></div>
                 <!-- Welcome Screen (populated by app.js) -->
             </div>
+
+            <!-- Jump to Bottom Button -->
+            <button id="jumpToBottomBtn" class="jump-to-bottom hidden">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+            </button>
 
             <!-- Input Area -->
             <div class="input-area">

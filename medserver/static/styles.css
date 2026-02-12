@@ -815,6 +815,57 @@ textarea {
 .badge.multimodal { background: var(--accent-muted); color: var(--accent); border: 1px solid var(--accent-glow); }
 .badge.text-only { background: var(--bg-subtle); color: var(--text-muted); border: 1px solid var(--border); }
 
+.sidebar-textarea {
+    width: 100%;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-main);
+    padding: 10px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    outline: none;
+    resize: vertical;
+    min-height: 80px;
+    transition: border-color 0.2s ease;
+}
+
+.sidebar-textarea:focus {
+    border-color: var(--accent);
+}
+
+.jump-to-bottom {
+    position: absolute;
+    bottom: 120px;
+    right: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-bright);
+    color: var(--text-main);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 50;
+    transition: all 0.2s ease;
+    opacity: 0.9;
+}
+
+.jump-to-bottom:hover {
+    background: var(--bg-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: translateY(-2px);
+    opacity: 1;
+}
+
+.jump-to-bottom.hidden {
+    display: none !important;
+}
+
 /* Thinking Trace */
 .thinking-trace {
     margin: 12px 0;
