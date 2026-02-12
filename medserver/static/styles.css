@@ -311,6 +311,8 @@ body {
     color: var(--text-regular);
     min-width: 0;
     overflow-wrap: break-word;
+    position: relative;
+    /* Moved from the other declaration */
 }
 
 .message-content strong,
@@ -536,16 +538,7 @@ textarea {
 }
 
 /* Message Actions */
-.message-content {
-    position: relative;
-    flex: 1;
-    font-size: 1rem;
-    line-height: 1.7;
-    color: var(--text-muted);
-    /* Consistent with the primary message-content change */
-    min-width: 0;
-    overflow-wrap: break-word;
-}
+/* Message Actions now rely on the relative position of the primary message-content */
 
 .message-actions {
     position: absolute;
