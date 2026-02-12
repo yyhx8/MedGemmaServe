@@ -196,6 +196,11 @@ def main():
     # Check GPU
     has_gpu = check_gpu()
 
+    if args.quantize and not has_gpu:
+        print("❌ ERROR: 4-bit quantization requires a CUDA GPU.")
+        print("   Please run without -q or install CUDA/PyTorch correctly.")
+        sys.exit(1)
+
     # Check HF token
     hf_token = check_hf_token(args.hf_token)
 

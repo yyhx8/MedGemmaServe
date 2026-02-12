@@ -6,7 +6,7 @@ import platform
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional, List, Dict, Any
+from typing import AsyncIterator, Optional, List, Dict, Any, Union
 
 import torch
 
@@ -81,7 +81,7 @@ class BaseEngine(ABC):
 
     def format_chat_prompt(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         num_images: int = 0,
     ) -> str:
@@ -89,23 +89,38 @@ class BaseEngine(ABC):
         parts = []
 
         # PaliGemma Specific: The <image> tokens MUST be at the very beginning of the entire prompt.
-        # However, for instruction-tuned variants, it's often best to keep them as a tight prefix.
         image_prefix = ""
         if num_images > 0:
              image_prefix = "<image>" * num_images
+
+        # Extract system prompt from messages if not provided explicitly
+        if not system_prompt:
+            for msg in messages:
+                if msg.get("role") == "system":
+                    system_prompt = msg.get("content", "")
+                    if isinstance(system_prompt, list):
+                        # Extract text from structured content if needed
+                        text_parts = [item.get("text", "") for item in system_prompt if item.get("type") == "text"]
+                        system_prompt = " ".join(text_parts)
+                    break
 
         # System prompt as first user context if provided
         if system_prompt:
             # We add a virtual user turn for the system prompt
             parts.append(f"<start_of_turn>user\n{system_prompt}<end_of_turn>")
 
-        for i, msg in enumerate(messages):
-            role = msg.get("role", "user")
+        for msg in messages:
+            role = msg.get("role")
             content = msg.get("content", "")
+            
+            # Handle structured content (list of dicts)
+            if isinstance(content, list):
+                text_parts = [item.get("text", "") for item in content if item.get("type") == "text"]
+                content = " ".join(text_parts)
 
             if role == "user":
                 parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
-            elif role == "assistant":
+            elif role == "assistant" or role == "model":
                 parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
 
         # Final model turn trigger
@@ -168,37 +183,41 @@ class SGLangEngine(BaseEngine):
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
 
-        # SGLang usually handles OpenAI-style message lists.
-        # If it's a list, we pass it as 'messages' if the engine supports it, 
-        # or format it to string.
+        # Always format structured prompt for consistency
         final_prompt = prompt
         if isinstance(prompt, list):
-             # For simplicity in this factory, we'll format it to string using our manual template
-             # as SGLang setup varies.
              final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
 
         # Construct input
         inputs = {"text": final_prompt}
         if images and self.supports_images:
-             # SGLang image handling logic
+             # SGLang takes a list of PIL images or base64 strings
              inputs["image_data"] = images
 
         sampling_params = {
             "max_new_tokens": max_tokens,
             "temperature": temperature,
-            "stop": ["<end_of_turn>", "<eos>"],
+            "stop": ["<end_of_turn>", "<eos>", "<|endoftext|>"],
         }
 
-        # Streaming generator
-        # SGLang's generator yields request output objects
+        # SGLang usually returns cumulative text in the 'text' field.
+        # We need to yield deltas for the frontend.
         generator = self._engine.generate(
             inputs,
             sampling_params,
             stream=True
         )
 
+        last_len = 0
         async for output in generator:
-            yield output["text"]
+            if stop_event and stop_event.is_set():
+                break
+            
+            new_text = output["text"]
+            delta = new_text[last_len:]
+            if delta:
+                yield delta
+            last_len = len(new_text)
 
 
 class TransformersEngine(BaseEngine):
@@ -253,10 +272,14 @@ class TransformersEngine(BaseEngine):
                 self._processor = AutoProcessor.from_pretrained(
                     self.model_id, token=self.hf_token, trust_remote_code=True
                 )
+                if self._processor.tokenizer.pad_token_id is None:
+                    self._processor.tokenizer.pad_token_id = self._processor.tokenizer.eos_token_id
             else:
                 self._tokenizer = AutoTokenizer.from_pretrained(
                     self.model_id, token=self.hf_token, trust_remote_code=True
                 )
+                if self._tokenizer.pad_token_id is None:
+                    self._tokenizer.pad_token_id = self._tokenizer.eos_token_id
         except Exception as e:
             logger.error(f"Failed to load tokenizer/processor: {e}")
             raise
@@ -289,27 +312,16 @@ class TransformersEngine(BaseEngine):
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
 
-        # Resolve prompt if it's a list of messages
+        # For MedGemma/Gemma, we use our manual formatter to ensure 
+        # system prompt and image token injection are handled correctly.
         final_prompt = prompt
         if isinstance(prompt, list):
-            if self._processor and hasattr(self._processor, "apply_chat_template"):
-                try:
-                    final_prompt = self._processor.apply_chat_template(
-                        prompt, 
-                        add_generation_prompt=True, 
-                        tokenize=False
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to apply chat template: {e}. Falling back to manual formatting.")
-                    # Manual fallback if template fails
-                    final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
-            else:
-                final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
+            final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
 
         # Prepare inputs
         inputs = None
         if self.supports_images and self._processor and images:
-            # Multimodal input handling
+            # Multimodal input handling: images is a list of PIL images
             inputs = self._processor(
                 text=[final_prompt],
                 images=images,

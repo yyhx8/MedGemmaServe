@@ -242,11 +242,11 @@ def create_app(
         full_prompt = engine.format_chat_prompt(
             [{"role": "user", "content": prompt}],
             system_prompt=SYSTEM_PROMPT,
-            has_images=True
+            num_images=1
         )
 
         return StreamingResponse(
-            _stream_analyze(full_prompt, [pil_image], max_tokens, temperature),
+            _stream_analyze(raw_request, full_prompt, [pil_image], max_tokens, temperature),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -256,6 +256,7 @@ def create_app(
         )
 
     async def _stream_analyze(
+        request: Request,
         prompt: str,
         images: list,
         max_tokens: int,
@@ -269,6 +270,8 @@ def create_app(
                 temperature=temperature,
                 images=images,
             ):
+                if await request.is_disconnected():
+                    break
                 data = json.dumps({"token": token})
                 yield f"data: {data}\n\n"
             yield "data: [DONE]\n\n"
