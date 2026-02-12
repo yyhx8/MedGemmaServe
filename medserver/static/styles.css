@@ -869,14 +869,18 @@ textarea {
     }
 }
 
-/* Tablets & Small Laptops (768px - 1024px) */
 @media (max-width: 1024px) {
+    :root {
+        --sidebar-width: 320px;
+    }
+
     .sidebar {
         position: fixed;
         left: 0;
         top: 0;
         bottom: 0;
         transform: translateX(-100%);
+        width: var(--sidebar-width);
     }
 
     .sidebar.open {
@@ -904,6 +908,16 @@ textarea {
         --sidebar-width: 85%;
         --header-height: 56px;
     }
+
+    .sidebar.open {
+        width: 85%;
+    }
+
+    /* Keep model name visible, hide technical hardware details on mobile */
+    .hw-stats {
+        display: none !important;
+    }
+
 
     .main-header {
         padding: 0 16px;
@@ -957,15 +971,6 @@ textarea {
 
     .quick-actions {
         grid-template-columns: 1fr;
-    }
-
-    .sidebar.open {
-        width: 85%;
-    }
-
-    /* Hide some info on mobile sidebar to save space */
-    .info-widget {
-        display: none;
     }
 }
 
