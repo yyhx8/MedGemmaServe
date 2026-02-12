@@ -744,8 +744,16 @@
                         }
                         if (data.token) {
                             fullText += data.token;
+
+                            // Proactive scroll check before DOM update
+                            const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
+
                             contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx);
-                            scrollToBottom();
+
+                            // Sticky scroll: if we were at the bottom or it's a new generation, stay at bottom
+                            if (isAtBottom && !state.manualScroll) {
+                                els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
+                            }
                         }
                     } catch (_) { }
                 }
@@ -952,17 +960,18 @@
                     state.messages[index].content = newContent;
                 }
 
-                state.messages = state.messages.slice(0, index + 1);
-
-                // Refresh UI
-                els.chatContainer.innerHTML = '';
-                state.messages.forEach((m, idx) => {
-                    addMessage(m.role, m.content, m.imageData || null, false, idx);
-                });
-
                 persistMessages();
 
+                // Refresh only modified content to avoid scroll jump
+                const text = getMessageText(state.messages[index].content);
+                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text);
+
                 if (msg.role === 'user') {
+                    // If user message was edited, we MUST clear subsequent and restart stream
+                    els.chatContainer.innerHTML = '';
+                    state.messages.forEach((m, idx) => {
+                        addMessage(m.role, m.content, m.imageData || null, false, idx);
+                    });
                     await streamChat();
                 } else {
                     renderRegenerateButton();
@@ -979,13 +988,22 @@
         state.messages.splice(index, 1);
         persistMessages();
 
-        els.chatContainer.innerHTML = '';
         if (state.messages.length === 0) {
             showWelcomeScreen();
         } else {
+            // Find the message element and remove it specifically
+            const msgEl = $$('.message')[index];
+            if (msgEl) msgEl.remove();
+
+            // Re-index subsequent messages if necessary (or just re-render if too complex)
+            // For simplicity and stability, re-render into a fragment? 
+            // Actually, for delete, a full re-render is safer but we should scroll to current position
+            const currentScroll = els.chatContainer.scrollTop;
+            els.chatContainer.innerHTML = '';
             state.messages.forEach((m, idx) => {
                 addMessage(m.role, m.content, m.imageData || null, false, idx);
             });
+            els.chatContainer.scrollTop = currentScroll;
             renderRegenerateButton();
         }
     }
@@ -1219,8 +1237,9 @@
                 state.expandedThoughts.add(key + '-collapsed');
             }
         }
-        // If we were at the bottom before toggling, stay at the bottom
-        scrollToBottom(true); // Force scroll when manually toggling to show content
+        // If we were at the bottom before toggling, stay at the bottom.
+        // But do not force a jump if the user is looking at history.
+        scrollToBottom(false);
     };
 
     function escapeHtml(text) {
