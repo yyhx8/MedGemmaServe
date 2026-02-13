@@ -160,19 +160,20 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    border: 1px solid transparent;
+    border: 1px solid var(--border);
+    margin-bottom: 6px;
 }
 
 .chat-history-item:hover {
     background: var(--bg-subtle);
     color: var(--text-main);
-    border-color: var(--border);
+    border-color: var(--border-bright);
 }
 
 .chat-history-item.active {
     background: var(--accent-muted);
     color: var(--accent);
-    border-color: var(--accent-glow);
+    border-color: var(--accent);
 }
 
 .chat-history-item-content {
@@ -324,7 +325,7 @@ body {
     min-width: 0;
     overflow-wrap: break-word;
     position: relative;
-    padding-top: 4px;
+    padding: 4px 0 0 0;
 }
 
 .message-content strong,
@@ -339,6 +340,7 @@ body {
 .message-content h3 {
     color: var(--accent);
     margin: 28px 0 16px;
+    padding: 0;
     font-weight: 700;
     line-height: 1.3;
 }

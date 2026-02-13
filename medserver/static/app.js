@@ -891,6 +891,8 @@
 
     function stopGeneration() {
         if (state.abortController) {
+            state.isStreaming = false; // Set this first to affect the final render
+
             // Provide immediate feedback
             if (els.sendBtn) {
                 els.sendBtn.innerHTML = '<span style="font-size: 0.7rem;">STOPPING</span>';
@@ -1324,12 +1326,17 @@
         thoughts.forEach((thought, i) => {
             const thoughtKey = `${msgIdx}-${i}`;
             const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
+            
+            // It only glows if the thought is NOT closed AND we are currently streaming
             const isProcessing = !thought.isClosed && isStreaming;
 
-            // It should be collapsed if it's closed AND not manually expanded
-            // If it's processing, it should be visible (not collapsed) unless manually toggled
+            // It should be collapsed if:
+            // 1. It is closed (finished) AND not manually expanded
+            // 2. We are NO LONGER streaming AND not manually expanded
             let isCollapsed = (thought.isClosed || !isStreaming) && !isManuallyExpanded;
-            if (!thought.isClosed && isStreaming && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
+            
+            // Exception: If it's still processing but the user manually collapsed it
+            if (isProcessing && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
                 isCollapsed = true;
             }
 
