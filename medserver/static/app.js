@@ -468,10 +468,11 @@
         const chat = ChatStore.get(chatId);
         if (!chat) return;
 
-        const isSameChat = state.activeChatId === chatId;
+        // Correctly check if we are in the same chat BEFORE updating state.activeChatId
+        const isSameChat = (state.activeChatId === chatId);
         state.activeChatId = chatId;
         state.messages = [...chat.messages];
-        // Only clear expanded thoughts if we are switching to a COMPLETELY different conversation
+        
         if (!isSameChat) {
             state.expandedThoughts.clear();
         }
@@ -1208,14 +1209,12 @@
 
         // Handle Pairing
         let pairDiv;
-        const pairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
-        const lastPair = pairs[pairs.length - 1];
-
+        const allPairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
+        
         if (role === 'user') {
             pairDiv = document.createElement('div');
             pairDiv.className = 'conversation-pair';
             if (!animate) pairDiv.style.animation = 'none';
-            // Insert before regenerate button if it exists
             const regenBtn = $('#regenerateContainer');
             if (regenBtn) {
                 els.chatContainer.insertBefore(pairDiv, regenBtn);
@@ -1223,11 +1222,10 @@
                 els.chatContainer.appendChild(pairDiv);
             }
         } else {
-            // Assistant message: find a pair that doesn't have an assistant message yet
-            // This is usually the last one after a user message is added or regenerated
-            if (lastPair && !lastPair.querySelector('.message.assistant')) {
-                pairDiv = lastPair;
-            } else {
+            // Assistant: search for the first pair that doesn't have an assistant message
+            pairDiv = allPairs.find(p => !p.querySelector('.message.assistant'));
+            
+            if (!pairDiv) {
                 pairDiv = document.createElement('div');
                 pairDiv.className = 'conversation-pair';
                 if (!animate) pairDiv.style.animation = 'none';
@@ -1337,19 +1335,23 @@
     /**
      * Basic Markdown Parser with Code-Block Protection
      */
-    function renderMarkdown(text, msgIdx = -1, isStreaming = false) {
+    function renderMarkdown(text, msgIdx = -1, isStreaming = false, isInner = false) {
         if (!text) return '';
 
         const thoughts = [];
-        let processedText = text.replace(/<unused94>([\s\S]*?)(?:<unused95>|$)/g, (match, thought) => {
-            const isClosed = match.includes('<unused95>');
-            const id = `__THOUGHT_${thoughts.length}__`;
-            thoughts.push({
-                content: thought.trim(),
-                isClosed: isClosed
+        let processedText = text;
+        
+        if (!isInner) {
+            processedText = text.replace(/<unused94>([\s\S]*?)(?:<unused95>|$)/g, (match, thought) => {
+                const isClosed = match.includes('<unused95>');
+                const id = `__THOUGHT_${thoughts.length}__`;
+                thoughts.push({
+                    content: thought.trim(),
+                    isClosed: isClosed
+                });
+                return id;
             });
-            return id;
-        });
+        }
 
         const codeBlocks = [];
         let html = escapeHtml(processedText);
@@ -1369,14 +1371,31 @@
         });
 
         // 3. Regular Markdown (Block level)
-        // Lists
-        html = html.replace(/^((?:(?:[-*] |\d+\. ).+\n?)+)/gm, (match) => {
-            const items = match.trim().split('\n').map(line => {
-                const content = line.replace(/^([-*] |\d+\. )/, '').trim();
-                return `<li>${content}</li>`;
-            }).join('');
-            return `<ul>${items}</ul>\n`;
+        // Improved List Handling: Using a line-by-line processor for robust streaming
+        const rawLines = html.split('\n');
+        let inList = false;
+        const processedLines = [];
+
+        rawLines.forEach(line => {
+            const trimmed = line.trim();
+            const listMatch = trimmed.match(/^([-*] |\d+\. )/);
+            
+            if (listMatch) {
+                if (!inList) {
+                    processedLines.push('<ul>');
+                    inList = true;
+                }
+                processedLines.push(`<li>${trimmed.replace(listMatch[0], '')}</li>`);
+            } else {
+                if (inList) {
+                    processedLines.push('</ul>');
+                    inList = false;
+                }
+                processedLines.push(line);
+            }
         });
+        if (inList) processedLines.push('</ul>');
+        html = processedLines.join('\n');
 
         // Headers
         html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
@@ -1392,7 +1411,7 @@
 
         // 4. Paragraphs & Line Breaks
         // Split by newlines and wrap non-block lines in <p>
-        const blocks = ['h1', 'h2', 'h3', 'ul', 'ol', 'pre', 'blockquote', 'div'];
+        const blocks = ['h1', 'h2', 'h3', 'ul', 'ol', 'pre', 'blockquote', 'div', 'li'];
         const lines = html.split('\n');
         html = lines.map(line => {
             const trimmed = line.trim();
@@ -1407,33 +1426,37 @@
         });
 
         // 5. Restore Thinking Traces
-        thoughts.forEach((thought, i) => {
-            const thoughtKey = `${msgIdx}-${i}`;
-            const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
-            
-            // It only glows if the thought is NOT closed AND we are currently streaming
-            const isProcessing = !thought.isClosed && isStreaming;
+        if (!isInner) {
+            thoughts.forEach((thought, i) => {
+                const thoughtKey = `${msgIdx}-${i}`;
+                const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
+                
+                // It only glows if the thought is NOT closed AND we are currently streaming
+                const isProcessing = !thought.isClosed && isStreaming;
 
-            // It should be collapsed if:
-            // 1. It is closed (finished) AND not manually expanded
-            // 2. We are NO LONGER streaming AND not manually expanded
-            let isCollapsed = (thought.isClosed || !isStreaming) && !isManuallyExpanded;
-            
-            // Exception: If it's still processing but the user manually collapsed it
-            if (isProcessing && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
-                isCollapsed = true;
-            }
+                // It should be collapsed if:
+                // 1. It is closed (finished) AND not manually expanded
+                // 2. We are NO LONGER streaming AND not manually expanded
+                let isCollapsed = (thought.isClosed || !isStreaming) && !isManuallyExpanded;
+                
+                // Exception: If it's still processing but the user manually collapsed it
+                if (isProcessing && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
+                    isCollapsed = true;
+                }
 
-            const thoughtHtml = `
-                <div class="thinking-trace ${isProcessing ? 'processing' : ''} ${isCollapsed ? 'collapsed' : ''}" data-thought-key="${thoughtKey}">
-                    <div class="thinking-header" onclick="window.toggleThought('${thoughtKey}', this.parentElement)">
-                        Thinking Process
+                const renderedThought = renderMarkdown(thought.content, -1, false, true);
+
+                const thoughtHtml = `
+                    <div class="thinking-trace ${isProcessing ? 'processing' : ''} ${isCollapsed ? 'collapsed' : ''}" data-thought-key="${thoughtKey}">
+                        <div class="thinking-header" onclick="window.toggleThought('${thoughtKey}', this.parentElement)">
+                            Thinking Process
+                        </div>
+                        <div class="thinking-content">${renderedThought}</div>
                     </div>
-                    <div class="thinking-content">${escapeHtml(thought.content)}</div>
-                </div>
-            `;
-            html = html.replace(`__THOUGHT_${i}__`, thoughtHtml);
-        });
+                `;
+                html = html.replace(`__THOUGHT_${i}__`, thoughtHtml);
+            });
+        }
 
         return html;
     }
