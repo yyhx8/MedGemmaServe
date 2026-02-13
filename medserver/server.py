@@ -246,8 +246,9 @@ def create_app(
         if SYSTEM_PROMPT:
              messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
+        stop_event = threading.Event()
         return StreamingResponse(
-            _stream_analyze(raw_request, messages, [pil_image], max_tokens, temperature),
+            _stream_analyze(raw_request, messages, [pil_image], max_tokens, temperature, stop_event),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -262,6 +263,7 @@ def create_app(
         images: list,
         max_tokens: int,
         temperature: float,
+        stop_event: threading.Event,
     ):
         """SSE stream generator for image analysis."""
         try:
@@ -270,8 +272,10 @@ def create_app(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 images=images,
+                stop_event=stop_event
             ):
                 if await request.is_disconnected():
+                    stop_event.set()
                     break
                 data = json.dumps({"token": token})
                 yield f"data: {data}\n\n"
@@ -279,5 +283,7 @@ def create_app(
         except Exception as e:
             logger.error(f"Image analysis streaming error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            stop_event.set()
 
     return app

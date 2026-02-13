@@ -156,6 +156,7 @@
         abortController: null,
         expandedThoughts: new Set(), // Track which thoughts are manually expanded: "msgIdx-thoughtIdx"
         manualScroll: false, // Track if user has manually scrolled up during streaming
+        lightboxTransform: { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 },
     };
 
     // ── DOM References ────────────────────────────────────
@@ -219,15 +220,16 @@
 
         // Handle page reload/close during streaming
         window.addEventListener('beforeunload', () => {
-            if (state.isStreaming && state.messages.length > 0) {
-                // The stream is active, but we're leaving.
-                // Re-calculate the assistant message if it wasn't pushed yet.
-                // Note: state.messages only has [..., userMsg] at start of stream.
-                // Usually the partial text is in the DOM but not yet in state.messages.
-                // We'll leave it to the next session load to realize it's incomplete OR
-                // try to save what we have now if possible.
-                // Given localStorage is synchronous, we can try one last save.
-                finalizeStreamingResponse();
+            if (state.isStreaming) {
+                // Try to finalize and save whatever we have right now
+                const msgIdx = state.messages.length; // The index the next assistant msg will have
+                const contentEl = $$('.message.assistant .content-text')[$$('.message.assistant').length - 1];
+                finalizeStreamingResponse(null, msgIdx, contentEl);
+
+                // Also abort the fetch to trigger server-side stop if possible
+                if (state.abortController) {
+                    state.abortController.abort();
+                }
             }
         });
     }
@@ -313,6 +315,16 @@
 
         // Disclaimer
         if (els.disclaimerAccept) els.disclaimerAccept.addEventListener('click', acceptDisclaimer);
+
+        // Lightbox Zoom/Pan
+        const lightbox = $('#lightbox');
+        const img = $('#lightboxImg');
+        if (lightbox && img) {
+            img.addEventListener('wheel', handleLightboxWheel, { passive: false });
+            img.addEventListener('mousedown', handleLightboxDragStart);
+            window.addEventListener('mousemove', handleLightboxDragMove);
+            window.addEventListener('mouseup', handleLightboxDragEnd);
+        }
     }
 
     function toggleSidebar() {
@@ -613,7 +625,8 @@
     function onInputChange() {
         if (!els.chatInput || !els.sendBtn) return;
         const hasText = els.chatInput.value.trim().length > 0;
-        els.sendBtn.disabled = !hasText && !state.isStreaming;
+        const hasImages = state.attachedImagesData.length > 0;
+        els.sendBtn.disabled = (!hasText && !hasImages) && !state.isStreaming;
         updateTokenCounter();
     }
 
@@ -764,6 +777,19 @@
 
                             contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx);
 
+                            // Incrementally save every ~20 tokens to avoid loss on sudden crash/refresh
+                            if (fullText.length % 80 === 0) {
+                                // Update current state but don't finalize yet
+                                // We update the last message if it's assistant, or push a new one
+                                const lastMsg = state.messages[state.messages.length - 1];
+                                if (lastMsg && lastMsg.role === 'assistant') {
+                                    lastMsg.content = fullText;
+                                } else {
+                                    state.messages.push({ role: 'assistant', content: fullText });
+                                }
+                                ChatStore.update(state.activeChatId, state.messages);
+                            }
+
                             // Sticky scroll: if we were at the bottom or it's a new generation, stay at bottom
                             if (isAtBottom && !state.manualScroll) {
                                 els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
@@ -773,7 +799,13 @@
                 }
             }
 
-            state.messages.push({ role: 'assistant', content: fullText });
+            // Replace or push the final assistant message
+            const lastMsg = state.messages[state.messages.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+                lastMsg.content = fullText;
+            } else {
+                state.messages.push({ role: 'assistant', content: fullText });
+            }
             persistMessages();
             renderRegenerateButton();
 
@@ -1301,6 +1333,8 @@
         const lightbox = $('#lightbox');
         const lightboxImg = $('#lightboxImg');
         if (lightbox && lightboxImg) {
+            state.lightboxTransform = { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 };
+            updateLightboxTransform();
             lightboxImg.src = url;
             lightbox.classList.remove('hidden');
         }
@@ -1312,6 +1346,46 @@
             lightbox.classList.add('hidden');
         }
     };
+
+    function updateLightboxTransform() {
+        const img = $('#lightboxImg');
+        if (!img) return;
+        const { scale, x, y } = state.lightboxTransform;
+        img.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    }
+
+    function handleLightboxWheel(e) {
+        e.preventDefault();
+        const delta = -Math.sign(e.deltaY);
+        const factor = 0.1;
+        let newScale = state.lightboxTransform.scale + delta * factor;
+        newScale = Math.max(0.5, Math.min(newScale, 5)); // Limit zoom
+
+        state.lightboxTransform.scale = newScale;
+        updateLightboxTransform();
+    }
+
+    function handleLightboxDragStart(e) {
+        if (state.lightboxTransform.scale <= 1) return; // Only pan if zoomed in
+        e.preventDefault();
+        state.lightboxTransform.isDragging = true;
+        state.lightboxTransform.startX = e.clientX - state.lightboxTransform.x;
+        state.lightboxTransform.startY = e.clientY - state.lightboxTransform.y;
+        e.target.style.cursor = 'grabbing';
+    }
+
+    function handleLightboxDragMove(e) {
+        if (!state.lightboxTransform.isDragging) return;
+        state.lightboxTransform.x = e.clientX - state.lightboxTransform.startX;
+        state.lightboxTransform.y = e.clientY - state.lightboxTransform.startY;
+        updateLightboxTransform();
+    }
+
+    function handleLightboxDragEnd(e) {
+        state.lightboxTransform.isDragging = false;
+        const img = $('#lightboxImg');
+        if (img) img.style.cursor = state.lightboxTransform.scale > 1 ? 'grab' : 'default';
+    }
 
     // ── Boot ──────────────────────────────────────────────
     if (document.readyState === 'loading') {

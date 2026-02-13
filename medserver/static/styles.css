@@ -809,7 +809,8 @@ textarea {
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: zoom-out;
+    overflow: hidden;
+    /* Prevent scrollbars when panning */
 }
 
 #lightboxImg {
@@ -817,8 +818,11 @@ textarea {
     max-height: 95vh;
     border-radius: 8px;
     box-shadow: 0 20px 80px rgba(0, 0, 0, 1);
+    transition: transform 0.05s linear;
+    /* Short transition for smooth zoom/pan */
     cursor: default;
-    animation: zoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    user-select: none;
+    -webkit-user-drag: none;
 }
 
 @keyframes zoomIn {
