@@ -144,24 +144,34 @@ def create_app(
             full_messages.append({"role": "system", "content": effective_system_prompt})
         
         images = []
-        last_images_data = None
         
         for m in request.messages:
-            full_messages.append({"role": m.role, "content": m.content})
+            # Create a structured message for the engine
+            msg_content = m.content
+            
             if m.image_data and model_info.supports_images:
-                last_images_data = m.image_data
+                # Ensure the content has image placeholders if image_data is present
+                if isinstance(msg_content, str):
+                    # Convert string content to structured list and prepend placeholders
+                    msg_content = [{"type": "image"}] * len(m.image_data) + [{"type": "text", "text": msg_content}]
+                elif isinstance(msg_content, list):
+                    # Check if the list already has enough image placeholders
+                    img_placeholder_count = sum(1 for item in msg_content if item.get("type") == "image")
+                    if img_placeholder_count < len(m.image_data):
+                        missing = len(m.image_data) - img_placeholder_count
+                        msg_content = [{"type": "image"}] * missing + msg_content
+                
+                # Collect the actual image data
+                for img_b64 in m.image_data:
+                    try:
+                        header, encoded = img_b64.split(",", 1) if "," in img_b64 else (None, img_b64)
+                        image_bytes = base64.b64decode(encoded)
+                        pil_image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+                        images.append(pil_image)
+                    except Exception as e:
+                        logger.error(f"Failed to decode image: {e}")
 
-        if last_images_data:
-            logger.info(f"Processing {len(last_images_data)} images for chat request")
-            for img_b64 in last_images_data:
-                try:
-                    # Handle base64 data URL
-                    header, encoded = img_b64.split(",", 1) if "," in img_b64 else (None, img_b64)
-                    image_bytes = base64.b64decode(encoded)
-                    pil_image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
-                    images.append(pil_image)
-                except Exception as e:
-                    logger.error(f"Failed to decode image: {e}")
+            full_messages.append({"role": m.role, "content": msg_content})
 
         # If model doesn't support images, ensure we don't pass any
         if not model_info.supports_images and images:
@@ -241,8 +251,10 @@ def create_app(
         except Exception:
             raise HTTPException(400, "Invalid image format.")
 
-        # Pass messages as a list to allow the engine to use apply_chat_template
-        messages = [{"role": "user", "content": prompt}]
+        # Use structured content to ensure the engine sees the image placeholder
+        user_content = [{"type": "image"}, {"type": "text", "text": prompt}]
+        messages = [{"role": "user", "content": user_content}]
+        
         if SYSTEM_PROMPT:
              messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 

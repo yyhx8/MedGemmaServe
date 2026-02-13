@@ -81,40 +81,37 @@ class BaseEngine(ABC):
 
     def format_chat_prompt(
         self,
-        messages: List[Dict[str, Any]],
+        messages: Union[str, List[Dict[str, Any]]],
         num_images: int = 0,
     ) -> str:
         """
         Legacy manual formatter. 
         DEPRECATED: Prefer using processor.apply_chat_template for Gemma 3.
-        Used primarily as fallback or for engines without native template support.
         """
-        parts = []
-        # Find the index of the last user message to inject images
-        last_user_idx = -1
-        for i, msg in enumerate(messages):
-            if msg.get("role") == "user":
-                last_user_idx = i
+        if isinstance(messages, str):
+            # If a raw string is provided, prepend image tokens if needed
+            prefix = ("<image>" * num_images) + "\n" if num_images > 0 else ""
+            return f"{prefix}{messages}"
 
-        for i, msg in enumerate(messages):
+        parts = []
+        for msg in messages:
             role = msg.get("role")
             content = msg.get("content", "")
             
-            # Simple list to text conversion if needed
+            # Handle structured content (list of text/image parts)
             if isinstance(content, list):
-                text_parts = [item.get("text", "") for item in content if item.get("type") == "text"]
-                content = " ".join(text_parts)
+                text_parts = []
+                for item in content:
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                    elif item.get("type") == "image":
+                        text_parts.append("<image>")
+                content = "".join(text_parts)
 
             if role == "system":
                 parts.append(f"<start_of_turn>system\n{content}<end_of_turn>")
             elif role == "user":
-                # For basic text templates, we might need to inject <image> 
-                # Gemma models expect <image> tokens in the prompt if images are provided.
-                # We inject them into the last user turn if num_images > 0.
-                prefix = ""
-                if i == last_user_idx and num_images > 0:
-                    prefix = ("<image>" * num_images) + "\n"
-                parts.append(f"<start_of_turn>user\n{prefix}{content}<end_of_turn>")
+                parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
             elif role == "assistant" or role == "model":
                 parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
 
@@ -305,36 +302,26 @@ class TransformersEngine(BaseEngine):
         
         # Multimodal input handling
         if self.supports_images and self._processor:
-            # Gemma 3 / MedGemma vision input formatting: 
-            # processor.apply_chat_template takes list of dicts with content as list of text/image dicts.
             if isinstance(prompt, list):
                 formatted_messages = []
+                image_idx = 0
                 
-                # Find the last user message index
-                last_user_idx = -1
-                for i, msg in enumerate(prompt):
-                    if msg.get("role") == "user":
-                        last_user_idx = i
-                
-                for i, msg in enumerate(prompt):
+                for msg in prompt:
                     role = msg.get("role")
                     content = msg.get("content", "")
+                    msg_content = []
                     
-                    # Convert content to a list of dicts if it's not already
                     if isinstance(content, str):
-                        msg_content = [{"type": "text", "text": content}]
+                        msg_content.append({"type": "text", "text": content})
                     elif isinstance(content, list):
-                        msg_content = [c for c in content if c.get("type") == "text"]
-                    else:
-                        msg_content = []
-
-                    if i == last_user_idx and images:
-                        # Prepend images to the LAST user message
-                        image_parts = [{"type": "image", "image": img} for img in images]
-                        msg_content = image_parts + msg_content
-                        formatted_messages.append({"role": role, "content": msg_content})
-                    else:
-                        formatted_messages.append({"role": role, "content": msg_content})
+                        for item in content:
+                            if item.get("type") == "text":
+                                msg_content.append({"type": "text", "text": item.get("text", "")})
+                            elif item.get("type") == "image" and images and image_idx < len(images):
+                                msg_content.append({"type": "image", "image": images[image_idx]})
+                                image_idx += 1
+                    
+                    formatted_messages.append({"role": role, "content": msg_content})
 
                 try:
                     # Apply chat template with vision support
