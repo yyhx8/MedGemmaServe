@@ -156,6 +156,7 @@
         abortController: null,
         expandedThoughts: new Set(), // Track which thoughts are manually expanded: "msgIdx-thoughtIdx"
         manualScroll: false, // Track if user has manually scrolled up during streaming
+        currentStreamText: '', // Track raw text for reliable finalization/tags
         lightboxTransform: {
             scale: 1, x: 0, y: 0,
             isDragging: false, startX: 0, startY: 0,
@@ -761,6 +762,7 @@
             const decoder = new TextDecoder();
             let fullText = '';
             let buffer = '';
+            state.currentStreamText = '';
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -786,6 +788,7 @@
                         }
                         if (data.token) {
                             fullText += data.token;
+                            state.currentStreamText = fullText;
 
                             // Proactive scroll check before DOM update
                             const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
@@ -815,11 +818,19 @@
             }
 
             // Replace or push the final assistant message
+            let finalizedText = fullText;
+            const lastUnused94 = finalizedText.lastIndexOf('<unused94>');
+            const lastUnused95 = finalizedText.lastIndexOf('<unused95>');
+            if (lastUnused94 !== -1 && (lastUnused95 === -1 || lastUnused95 < lastUnused94)) {
+                finalizedText += '<unused95>';
+                contentEl.innerHTML = renderMarkdown(finalizedText, assistantMsgIdx);
+            }
+
             const lastMsg = state.messages[state.messages.length - 1];
             if (lastMsg && lastMsg.role === 'assistant') {
-                lastMsg.content = fullText;
+                lastMsg.content = finalizedText;
             } else {
-                state.messages.push({ role: 'assistant', content: fullText });
+                state.messages.push({ role: 'assistant', content: finalizedText });
             }
             persistMessages();
 
@@ -841,9 +852,8 @@
      * Helper to finalize a stream that was interrupted (stop button or reload)
      */
     function finalizeStreamingResponse(text, msgIdx, contentEl) {
-        // If called from beforeunload, we might not have all params
-        // We'll use the latest known state
-        const currentText = text || (contentEl ? contentEl.innerText.replace('(stopped)', '').trim() : '');
+        // Use provided text, then state.currentStreamText, then fallback to DOM (least reliable)
+        const currentText = text !== null ? text : (state.currentStreamText || (contentEl ? contentEl.innerText.replace('(stopped)', '').trim() : ''));
         const targetIdx = msgIdx !== undefined ? msgIdx : state.messages.length;
 
         let processedText = currentText;
@@ -1381,12 +1391,28 @@
 
     function handleLightboxWheel(e) {
         e.preventDefault();
+        const img = $('#lightboxImg');
+        if (!img) return;
+
+        const rect = img.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
         const delta = -Math.sign(e.deltaY);
         const factor = 0.1;
-        let newScale = state.lightboxTransform.scale + delta * factor;
-        newScale = Math.max(0.1, Math.min(newScale, 10)); // Allow deeper zoom and more zoom out
+        const oldScale = state.lightboxTransform.scale;
+        let newScale = oldScale + delta * factor;
+        newScale = Math.max(0.1, Math.min(newScale, 10));
 
-        state.lightboxTransform.scale = newScale;
+        if (newScale !== oldScale) {
+            const scaleRatio = newScale / oldScale;
+            const dx = mouseX - rect.width / 2;
+            const dy = mouseY - rect.height / 2;
+
+            state.lightboxTransform.x -= dx * (scaleRatio - 1);
+            state.lightboxTransform.y -= dy * (scaleRatio - 1);
+            state.lightboxTransform.scale = newScale;
+        }
 
         // When zooming back to original or smaller, reset position to center
         if (newScale <= 1) {
@@ -1446,6 +1472,10 @@
             updateLightboxTransform();
         } else if (e.touches.length === 2) {
             e.preventDefault();
+            const img = $('#lightboxImg');
+            if (!img) return;
+
+            const rect = img.getBoundingClientRect();
             const dist = Math.hypot(
                 e.touches[0].clientX - e.touches[1].clientX,
                 e.touches[0].clientY - e.touches[1].clientY
@@ -1455,10 +1485,22 @@
                 y: (e.touches[0].clientY + e.touches[1].clientY) / 2
             };
 
-            // Zoom
+            const oldScale = state.lightboxTransform.scale;
             const factor = dist / state.lightboxTransform.lastTouchDistance;
-            state.lightboxTransform.scale *= factor;
-            state.lightboxTransform.scale = Math.max(0.1, Math.min(state.lightboxTransform.scale, 10));
+            let newScale = oldScale * factor;
+            newScale = Math.max(0.1, Math.min(newScale, 10));
+
+            if (newScale !== oldScale) {
+                const scaleRatio = newScale / oldScale;
+                const mouseX = center.x - rect.left;
+                const mouseY = center.y - rect.top;
+                const dx = mouseX - rect.width / 2;
+                const dy = mouseY - rect.height / 2;
+
+                state.lightboxTransform.x -= dx * (scaleRatio - 1);
+                state.lightboxTransform.y -= dy * (scaleRatio - 1);
+                state.lightboxTransform.scale = newScale;
+            }
 
             // Pan based on center movement
             state.lightboxTransform.x += center.x - state.lightboxTransform.lastTouchCenter.x;

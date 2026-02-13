@@ -90,7 +90,13 @@ class BaseEngine(ABC):
         Used primarily as fallback or for engines without native template support.
         """
         parts = []
-        for msg in messages:
+        # Find the index of the last user message to inject images
+        last_user_idx = -1
+        for i, msg in enumerate(messages):
+            if msg.get("role") == "user":
+                last_user_idx = i
+
+        for i, msg in enumerate(messages):
             role = msg.get("role")
             content = msg.get("content", "")
             
@@ -103,10 +109,11 @@ class BaseEngine(ABC):
                 parts.append(f"<start_of_turn>system\n{content}<end_of_turn>")
             elif role == "user":
                 # For basic text templates, we might need to inject <image> 
-                # but Gemma 3 prefers structured list content.
+                # Gemma models expect <image> tokens in the prompt if images are provided.
+                # We inject them into the last user turn if num_images > 0.
                 prefix = ""
-                if len(parts) == 0 or (len(parts) == 1 and "system" in parts[0]):
-                    prefix = ("<image>" * num_images) + "\n" if num_images > 0 else ""
+                if i == last_user_idx and num_images > 0:
+                    prefix = ("<image>" * num_images) + "\n"
                 parts.append(f"<start_of_turn>user\n{prefix}{content}<end_of_turn>")
             elif role == "assistant" or role == "model":
                 parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
@@ -302,28 +309,30 @@ class TransformersEngine(BaseEngine):
             # processor.apply_chat_template takes list of dicts with content as list of text/image dicts.
             if isinstance(prompt, list):
                 formatted_messages = []
-                image_injected = False
                 
-                for msg in prompt:
+                # Find the last user message index
+                last_user_idx = -1
+                for i, msg in enumerate(prompt):
+                    if msg.get("role") == "user":
+                        last_user_idx = i
+                
+                for i, msg in enumerate(prompt):
                     role = msg.get("role")
                     content = msg.get("content", "")
                     
                     # Convert content to a list of dicts if it's not already
-                    # Vision models often require ALL content to be list-of-dicts if ANY are.
                     if isinstance(content, str):
                         msg_content = [{"type": "text", "text": content}]
                     elif isinstance(content, list):
-                        # Filter to only keep text parts for now, we'll inject images into user turn
                         msg_content = [c for c in content if c.get("type") == "text"]
                     else:
                         msg_content = []
 
-                    if role == "user" and images and not image_injected:
-                        # Prepend images to the first user message
+                    if i == last_user_idx and images:
+                        # Prepend images to the LAST user message
                         image_parts = [{"type": "image", "image": img} for img in images]
                         msg_content = image_parts + msg_content
                         formatted_messages.append({"role": role, "content": msg_content})
-                        image_injected = True
                     else:
                         formatted_messages.append({"role": role, "content": msg_content})
 
