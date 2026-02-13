@@ -480,7 +480,7 @@
             }
         }
 
-        removeImage();
+        // removeImage(); // Keep attached images when switching chats
     }
 
     function startNewChat() {
@@ -499,7 +499,7 @@
             els.chatContainer.innerHTML = '';
             showWelcomeScreen();
         }
-        removeImage();
+        // removeImage(); // Keep attached images when starting new chat
         renderChatHistory();
         closeSidebar();
     }
@@ -822,7 +822,6 @@
                 state.messages.push({ role: 'assistant', content: fullText });
             }
             persistMessages();
-            renderRegenerateButton();
 
         } catch (err) {
             if (err.name === 'AbortError') {
@@ -830,12 +829,12 @@
             } else {
                 contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
             }
+        } finally {
+            state.isStreaming = false;
+            state.abortController = null;
+            resetSendButton();
             renderRegenerateButton();
         }
-
-        state.isStreaming = false;
-        state.abortController = null;
-        resetSendButton();
     }
 
     /**
