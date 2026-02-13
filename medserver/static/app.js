@@ -626,7 +626,13 @@
         if (!els.chatInput || !els.sendBtn) return;
         const hasText = els.chatInput.value.trim().length > 0;
         const hasImages = state.attachedImagesData.length > 0;
-        els.sendBtn.disabled = (!hasText && !hasImages) && !state.isStreaming;
+
+        // During streaming, the button acts as a STOP button and should NEVER be disabled
+        if (state.isStreaming) {
+            els.sendBtn.disabled = false;
+        } else {
+            els.sendBtn.disabled = (!hasText && !hasImages);
+        }
         updateTokenCounter();
     }
 
@@ -860,6 +866,11 @@
 
     function stopGeneration() {
         if (state.abortController) {
+            // Provide immediate feedback
+            if (els.sendBtn) {
+                els.sendBtn.innerHTML = '<span style="font-size: 0.7rem;">STOPPING</span>';
+                els.sendBtn.disabled = true;
+            }
             state.abortController.abort();
         }
     }
@@ -1116,10 +1127,12 @@
 
     function renderRegenerateButton() {
         removeRegenerateButton();
-        if (state.messages.length === 0) return;
+        if (state.messages.length === 0 || state.isStreaming) return;
 
         const lastMsg = state.messages[state.messages.length - 1];
-        if (lastMsg.role !== 'assistant') return;
+        // Show regenerate if last message is assistant (standard) 
+        // OR if last message is user (case where generation was interrupted or failed to start)
+        if (lastMsg.role !== 'assistant' && lastMsg.role !== 'user') return;
 
         const container = document.createElement('div');
         container.className = 'regenerate-container';
@@ -1359,14 +1372,21 @@
         const delta = -Math.sign(e.deltaY);
         const factor = 0.1;
         let newScale = state.lightboxTransform.scale + delta * factor;
-        newScale = Math.max(0.5, Math.min(newScale, 5)); // Limit zoom
+        newScale = Math.max(0.1, Math.min(newScale, 10)); // Allow deeper zoom and more zoom out
 
         state.lightboxTransform.scale = newScale;
+
+        // When zooming back to original or smaller, reset position to center
+        if (newScale <= 1) {
+            state.lightboxTransform.x = 0;
+            state.lightboxTransform.y = 0;
+        }
+
         updateLightboxTransform();
     }
 
     function handleLightboxDragStart(e) {
-        if (state.lightboxTransform.scale <= 1) return; // Only pan if zoomed in
+        // Allow panning always, but it's most useful when zoomed in
         e.preventDefault();
         state.lightboxTransform.isDragging = true;
         state.lightboxTransform.startX = e.clientX - state.lightboxTransform.x;

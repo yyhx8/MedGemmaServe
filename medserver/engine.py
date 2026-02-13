@@ -409,7 +409,18 @@ class TransformersEngine(BaseEngine):
         finally:
             if stop_event:
                 stop_event.set()
-            thread.join()
+            
+            # Non-blocking wait for the thread to finish
+            # We don't use thread.join() here because it blocks the main event loop
+            # and prevents other requests (like health checks) from being processed
+            # while waiting for the GPU to release.
+            max_wait = 5.0  # seconds
+            wait_start = time.monotonic()
+            while thread.is_alive() and (time.monotonic() - wait_start < max_wait):
+                await asyncio.sleep(0.1)
+            
+            if thread.is_alive():
+                logger.warning(f"Generation thread did not terminate within {max_wait}s")
 
 
 def get_gpu_info() -> dict:
