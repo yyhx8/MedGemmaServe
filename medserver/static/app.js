@@ -1160,6 +1160,7 @@
 
         // Refresh UI
         switchToChat(state.activeChatId);
+        scrollToBottom(true); // Force scroll to the now-last user message
 
         await streamChat();
     }
@@ -1269,8 +1270,13 @@
         });
 
         // Bind actions
-        msgDiv.querySelector('.copy-btn').addEventListener('click', () => {
-            navigator.clipboard.writeText(text);
+        msgDiv.querySelector('.copy-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const contentEl = msgDiv.querySelector('.content-text');
+            // Prefer state.messages for clean text, fallback to DOM if state is out of sync or streaming
+            const textToCopy = (state.messages[index] ? getMessageText(state.messages[index].content) : '') || contentEl.innerText.replace('(stopped)', '').trim();
+            
+            navigator.clipboard.writeText(textToCopy);
             const btn = msgDiv.querySelector('.copy-btn');
             const oldHtml = btn.innerHTML;
             btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -1278,8 +1284,14 @@
         });
 
         if (role === 'user') {
-            msgDiv.querySelector('.edit-btn').addEventListener('click', () => editMessage(index));
-            msgDiv.querySelector('.delete-btn').addEventListener('click', () => deleteMessage(index));
+            msgDiv.querySelector('.edit-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                editMessage(index);
+            });
+            msgDiv.querySelector('.delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteMessage(index);
+            });
         }
 
         scrollToBottom();

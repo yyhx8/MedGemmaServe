@@ -271,14 +271,14 @@ body {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    padding: 40px 0;
+    padding: 40px 24px;
 }
 
 .message {
     width: 100%;
-    padding: 24px 32px;
+    padding: 32px 48px;
     display: flex;
-    gap: 20px;
+    gap: 24px;
     animation: fadeIn 0.4s ease;
     border-bottom: 1px solid var(--border);
     position: relative;
@@ -289,8 +289,8 @@ body {
 }
 
 .conversation-pair {
-    width: 95%;
-    max-width: 1000px;
+    width: 98%;
+    max-width: 1200px;
     margin: 0 auto 32px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -302,7 +302,7 @@ body {
 .conversation-pair:hover {
     border-color: var(--border-bright);
     background: rgba(255, 255, 255, 0.02);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .message.user {
@@ -375,16 +375,16 @@ body {
 }
 
 .message-content h1 { 
-    font-size: 1.5rem; 
-    margin-left: 30px;
+    font-size: 1.6rem; 
+    margin: 32px 0 16px 20px;
 }
 .message-content h2 { 
-    font-size: 1.3rem; 
-    margin-left: 60px;
+    font-size: 1.4rem; 
+    margin: 28px 0 14px 40px;
 }
 .message-content h3 { 
-    font-size: 1.1rem; 
-    margin-left: 90px;
+    font-size: 1.2rem; 
+    margin: 24px 0 12px 60px;
 }
 
 .message-content p {
