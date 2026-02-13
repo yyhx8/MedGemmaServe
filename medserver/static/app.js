@@ -800,7 +800,7 @@
                             // Proactive scroll check before DOM update
                             const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
 
-                            contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx, true);
+                            contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx, state.isStreaming);
 
                             // Incrementally save every ~20 tokens to avoid loss on sudden crash/refresh
                             if (fullText.length % 80 === 0) {
@@ -898,6 +898,20 @@
                 els.sendBtn.innerHTML = '<span style="font-size: 0.7rem;">STOPPING</span>';
                 els.sendBtn.disabled = true;
             }
+
+            // Force immediate UI update to kill animation
+            const assistantContents = document.querySelectorAll('.message.assistant .content-text');
+            if (assistantContents.length > 0) {
+                const lastContentEl = assistantContents[assistantContents.length - 1];
+                const msgIdx = state.messages.length; 
+                let text = state.currentStreamText;
+                // Close thinking tags if they are open so renderMarkdown treats them as finished
+                if (text.includes('<unused94>') && !text.includes('<unused95>')) {
+                    text += '<unused95>';
+                }
+                lastContentEl.innerHTML = renderMarkdown(text, msgIdx, false) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
+            }
+
             state.abortController.abort();
         }
     }
@@ -1101,26 +1115,29 @@
 
     function deleteMessage(index) {
         if (state.isStreaming) return;
-        state.messages.splice(index, 1);
+        
+        let startIdx = index;
+        let count = 1;
+        
+        // If we delete a user message, we delete the corresponding assistant response too
+        if (state.messages[index].role === 'user') {
+            if (state.messages[index + 1] && state.messages[index + 1].role === 'assistant') {
+                count = 2;
+            }
+        } else {
+            // If deleting assistant message directly (though UI hides btn), delete user before it too
+            startIdx = index - 1;
+            count = 2;
+        }
+
+        state.messages.splice(startIdx, count);
         persistMessages();
 
         if (state.messages.length === 0) {
             showWelcomeScreen();
         } else {
-            // Find the message element and remove it specifically
-            const msgEl = $$('.message')[index];
-            if (msgEl) msgEl.remove();
-
-            // Re-index subsequent messages if necessary (or just re-render if too complex)
-            // For simplicity and stability, re-render into a fragment? 
-            // Actually, for delete, a full re-render is safer but we should scroll to current position
-            const currentScroll = els.chatContainer.scrollTop;
-            els.chatContainer.innerHTML = '';
-            state.messages.forEach((m, idx) => {
-                addMessage(m.role, m.content, m.imageData || null, false, idx);
-            });
-            els.chatContainer.scrollTop = currentScroll;
-            renderRegenerateButton();
+            // For safety and consistency with pairs, re-render all
+            switchToChat(state.activeChatId);
         }
     }
 
@@ -1141,13 +1158,8 @@
         // Remove all messages after last user message
         state.messages = state.messages.slice(0, lastUserIdx + 1);
 
-        // Refresh UI - capture scroll to avoid jump
-        const currentScroll = els.chatContainer.scrollTop;
-        els.chatContainer.innerHTML = '';
-        state.messages.forEach((m, idx) => {
-            addMessage(m.role, m.content, m.imageData || null, false, idx);
-        });
-        els.chatContainer.scrollTop = currentScroll;
+        // Refresh UI
+        switchToChat(state.activeChatId);
 
         await streamChat();
     }
@@ -1157,13 +1169,13 @@
         if (state.messages.length === 0 || state.isStreaming) return;
 
         const lastMsg = state.messages[state.messages.length - 1];
-        // Show regenerate if last message is assistant (standard) 
-        // OR if last message is user (case where generation was interrupted or failed to start)
         if (lastMsg.role !== 'assistant' && lastMsg.role !== 'user') return;
 
         const container = document.createElement('div');
         container.className = 'regenerate-container';
         container.id = 'regenerateContainer';
+        container.style.paddingLeft = '0'; // Adjusted for paired layout
+        container.style.justifyContent = 'center';
         container.innerHTML = `
             <button class="btn-regenerate">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
@@ -1187,10 +1199,27 @@
 
         const text = getMessageText(content);
 
+        // Handle Pairing
+        let pairDiv;
+        if (role === 'user') {
+            pairDiv = document.createElement('div');
+            pairDiv.className = 'conversation-pair';
+            if (!animate) pairDiv.style.animation = 'none';
+            els.chatContainer.appendChild(pairDiv);
+        } else {
+            pairDiv = els.chatContainer.lastElementChild;
+            // If the last element isn't a pair or already has an assistant message, create a new pair
+            if (!pairDiv || !pairDiv.classList.contains('conversation-pair') || pairDiv.querySelector('.message.assistant')) {
+                pairDiv = document.createElement('div');
+                pairDiv.className = 'conversation-pair';
+                if (!animate) pairDiv.style.animation = 'none';
+                els.chatContainer.appendChild(pairDiv);
+            }
+        }
+
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role}`;
         msgDiv.dataset.index = index;
-        if (!animate) msgDiv.style.animation = 'none';
 
         const avatarIcon = role === 'assistant' ? 'M' : '👤';
 
@@ -1213,19 +1242,21 @@
                     <button class="action-btn copy-btn" title="Copy">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     </button>
+                    ${role === 'user' ? `
                     <button class="action-btn edit-btn" title="Edit">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     </button>
                     <button class="action-btn delete-btn" title="Delete">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
+                    ` : ''}
                 </div>
                 ${imagesHtml}
                 <div class="content-text">${role === 'assistant' ? renderMarkdown(text, index, state.isStreaming) : escapeHtml(text)}</div>
             </div>
         `;
 
-        els.chatContainer.appendChild(msgDiv);
+        pairDiv.appendChild(msgDiv);
 
         // Selection Toggle
         msgDiv.addEventListener('click', (e) => {
@@ -1246,8 +1277,10 @@
             setTimeout(() => btn.innerHTML = oldHtml, 2000);
         });
 
-        msgDiv.querySelector('.edit-btn').addEventListener('click', () => editMessage(index));
-        msgDiv.querySelector('.delete-btn').addEventListener('click', () => deleteMessage(index));
+        if (role === 'user') {
+            msgDiv.querySelector('.edit-btn').addEventListener('click', () => editMessage(index));
+            msgDiv.querySelector('.delete-btn').addEventListener('click', () => deleteMessage(index));
+        }
 
         scrollToBottom();
         return msgDiv;
