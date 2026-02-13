@@ -1206,15 +1206,16 @@
 
         const text = getMessageText(content);
 
-        // Handle Pairing - Look for the actual last pair div, ignoring buttons/etc
+        // Handle Pairing
         let pairDiv;
-        const existingPairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
-        
+        const pairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
+        const lastPair = pairs[pairs.length - 1];
+
         if (role === 'user') {
             pairDiv = document.createElement('div');
             pairDiv.className = 'conversation-pair';
             if (!animate) pairDiv.style.animation = 'none';
-            // Insert before regenerate button if it exists, otherwise append
+            // Insert before regenerate button if it exists
             const regenBtn = $('#regenerateContainer');
             if (regenBtn) {
                 els.chatContainer.insertBefore(pairDiv, regenBtn);
@@ -1222,12 +1223,11 @@
                 els.chatContainer.appendChild(pairDiv);
             }
         } else {
-            // Find the last pair that does NOT have an assistant message yet
-            // This is crucial for regeneration where the pair exists but is empty of assistant response
-            pairDiv = existingPairs.reverse().find(p => !p.querySelector('.message.assistant'));
-            
-            // Fallback: If no suitable pair exists, create one
-            if (!pairDiv) {
+            // Assistant message: find a pair that doesn't have an assistant message yet
+            // This is usually the last one after a user message is added or regenerated
+            if (lastPair && !lastPair.querySelector('.message.assistant')) {
+                pairDiv = lastPair;
+            } else {
                 pairDiv = document.createElement('div');
                 pairDiv.className = 'conversation-pair';
                 if (!animate) pairDiv.style.animation = 'none';
@@ -1368,28 +1368,45 @@
             return id;
         });
 
-        // 3. Regular Markdown
-        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        // 3. Regular Markdown (Block level)
+        // Lists
+        html = html.replace(/^((?:(?:[-*] |\d+\. ).+\n?)+)/gm, (match) => {
+            const items = match.trim().split('\n').map(line => {
+                const content = line.replace(/^([-*] |\d+\. )/, '').trim();
+                return `<li>${content}</li>`;
+            }).join('');
+            return `<ul>${items}</ul>\n`;
+        });
+
+        // Headers
         html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
         html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
         html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+        // Blockquotes
         html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-        html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
-        html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-        html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+        // Inline
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
         // 4. Paragraphs & Line Breaks
-        html = html.replace(/\n\n/g, '</p><p>');
-        html = `<p>${html}</p>`;
-        html = html.replace(/\n/g, '<br>');
+        // Split by newlines and wrap non-block lines in <p>
+        const blocks = ['h1', 'h2', 'h3', 'ul', 'ol', 'pre', 'blockquote', 'div'];
+        const lines = html.split('\n');
+        html = lines.map(line => {
+            const trimmed = line.trim();
+            if (!trimmed) return '';
+            const isBlock = blocks.some(tag => trimmed.startsWith(`<${tag}`));
+            return isBlock ? trimmed : `<p>${trimmed}</p>`;
+        }).join('\n');
 
-        // 5. Restore Protected Code Blocks
+        // Restore Protected Code Blocks
         codeBlocks.forEach((block, i) => {
             html = html.replace(`__CB_${i}__`, block);
         });
 
-        // 6. Restore Thinking Traces
+        // 5. Restore Thinking Traces
         thoughts.forEach((thought, i) => {
             const thoughtKey = `${msgIdx}-${i}`;
             const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
@@ -1417,11 +1434,6 @@
             `;
             html = html.replace(`__THOUGHT_${i}__`, thoughtHtml);
         });
-
-        // Cleanup empty paragraphs or misaligned tags
-        html = html.replace(/<p>\s*<\/p>/g, '');
-        html = html.replace(/<p>\s*(<h[1-3]|<ul>|<pre|<blockquote>)/g, '$1');
-        html = html.replace(/(<\/h[1-3]|<\/ul>|<\/pre>|<\/blockquote>)\s*<\/p>/g, '$1');
 
         return html;
     }
