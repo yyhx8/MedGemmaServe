@@ -363,12 +363,11 @@ body {
     font-weight: 600;
 }
 
-/* Markdown Styling */
+/* Markdown Styling — Consolidated Header Indentation */
 .message-content h1,
 .message-content h2,
 .message-content h3 {
     color: var(--accent);
-    margin: 28px 0 16px;
     padding: 0;
     font-weight: 700;
     line-height: 1.3;
@@ -376,15 +375,15 @@ body {
 
 .message-content h1 { 
     font-size: 1.6rem; 
-    margin: 32px 0 16px 20px;
+    margin: 32px 0 16px 30px !important;
 }
 .message-content h2 { 
     font-size: 1.4rem; 
-    margin: 28px 0 14px 40px;
+    margin: 28px 0 14px 60px !important;
 }
 .message-content h3 { 
     font-size: 1.2rem; 
-    margin: 24px 0 12px 60px;
+    margin: 24px 0 12px 90px !important;
 }
 
 .message-content p {
@@ -1056,21 +1055,26 @@ textarea {
     }
 
     .message {
-        padding: 0 16px;
+        padding: 24px 20px;
         gap: 12px;
-        margin-bottom: 24px;
+        margin-bottom: 0;
     }
 
-    .message-avatar {
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        font-size: 0.8rem;
+    .conversation-pair {
+        width: 100%;
+        margin-bottom: 24px;
+        border-radius: 12px;
+        border-left: none;
+        border-right: none;
     }
 
     .message-content {
         font-size: 0.95rem;
     }
+
+    .message-content h1 { margin-left: 15px !important; font-size: 1.4rem; }
+    .message-content h2 { margin-left: 30px !important; font-size: 1.25rem; }
+    .message-content h3 { margin-left: 45px !important; font-size: 1.15rem; }
 
     .input-area {
         padding: 12px 12px 24px;

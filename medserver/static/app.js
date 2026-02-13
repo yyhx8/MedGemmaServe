@@ -1116,6 +1116,7 @@
     function deleteMessage(index) {
         if (state.isStreaming) return;
         
+        const scrollPos = els.chatContainer.scrollTop;
         let startIdx = index;
         let count = 1;
         
@@ -1136,8 +1137,9 @@
         if (state.messages.length === 0) {
             showWelcomeScreen();
         } else {
-            // For safety and consistency with pairs, re-render all
+            // Re-render and restore scroll
             switchToChat(state.activeChatId);
+            els.chatContainer.scrollTop = scrollPos;
         }
     }
 
@@ -1160,7 +1162,7 @@
 
         // Refresh UI
         switchToChat(state.activeChatId);
-        scrollToBottom(true); // Force scroll to the now-last user message
+        scrollToBottom(true);
 
         await streamChat();
     }
@@ -1175,8 +1177,10 @@
         const container = document.createElement('div');
         container.className = 'regenerate-container';
         container.id = 'regenerateContainer';
-        container.style.paddingLeft = '0'; // Adjusted for paired layout
+        container.style.width = '100%';
+        container.style.display = 'flex';
         container.style.justifyContent = 'center';
+        container.style.padding = '20px 0';
         container.innerHTML = `
             <button class="btn-regenerate">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
@@ -1200,17 +1204,19 @@
 
         const text = getMessageText(content);
 
-        // Handle Pairing
+        // Handle Pairing - Look for the actual last pair div, ignoring buttons/etc
         let pairDiv;
+        const existingPairs = els.chatContainer.querySelectorAll('.conversation-pair');
+        
         if (role === 'user') {
             pairDiv = document.createElement('div');
             pairDiv.className = 'conversation-pair';
             if (!animate) pairDiv.style.animation = 'none';
             els.chatContainer.appendChild(pairDiv);
         } else {
-            pairDiv = els.chatContainer.lastElementChild;
-            // If the last element isn't a pair or already has an assistant message, create a new pair
-            if (!pairDiv || !pairDiv.classList.contains('conversation-pair') || pairDiv.querySelector('.message.assistant')) {
+            pairDiv = existingPairs[existingPairs.length - 1];
+            // Fallback: If no pair exists or it already has an assistant response, create new
+            if (!pairDiv || pairDiv.querySelector('.message.assistant')) {
                 pairDiv = document.createElement('div');
                 pairDiv.className = 'conversation-pair';
                 if (!animate) pairDiv.style.animation = 'none';
