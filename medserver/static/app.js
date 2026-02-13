@@ -216,6 +216,20 @@
         bindEvents();
         loadChatHistory();
         startHealthPolling();
+
+        // Handle page reload/close during streaming
+        window.addEventListener('beforeunload', () => {
+            if (state.isStreaming && state.messages.length > 0) {
+                // The stream is active, but we're leaving.
+                // Re-calculate the assistant message if it wasn't pushed yet.
+                // Note: state.messages only has [..., userMsg] at start of stream.
+                // Usually the partial text is in the DOM but not yet in state.messages.
+                // We'll leave it to the next session load to realize it's incomplete OR
+                // try to save what we have now if possible.
+                // Given localStorage is synchronous, we can try one last save.
+                finalizeStreamingResponse();
+            }
+        });
     }
 
     function bindEvents() {
@@ -765,25 +779,7 @@
 
         } catch (err) {
             if (err.name === 'AbortError') {
-                // If it was still showing typing indicator, clear it
-                if (contentEl.querySelector('.typing-indicator')) {
-                    contentEl.innerHTML = '';
-                }
-
-                // Close thinking trace only if it was actually in progress
-                const lastTagIdx = fullText.lastIndexOf('<unused94>');
-                const closeTagIdx = fullText.lastIndexOf('<unused95>');
-                if (lastTagIdx !== -1 && (closeTagIdx === -1 || closeTagIdx < lastTagIdx)) {
-                    fullText += '<unused95>';
-                }
-
-                contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
-
-                // Save partial response if any
-                if (fullText.trim().length > 0) {
-                    state.messages.push({ role: 'assistant', content: fullText });
-                    persistMessages();
-                }
+                finalizeStreamingResponse(fullText, assistantMsgIdx, contentEl);
             } else {
                 contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
             }
@@ -793,6 +789,41 @@
         state.isStreaming = false;
         state.abortController = null;
         resetSendButton();
+    }
+
+    /**
+     * Helper to finalize a stream that was interrupted (stop button or reload)
+     */
+    function finalizeStreamingResponse(text, msgIdx, contentEl) {
+        // If called from beforeunload, we might not have all params
+        // We'll use the latest known state
+        const currentText = text || (contentEl ? contentEl.innerText.replace('(stopped)', '').trim() : '');
+        const targetIdx = msgIdx !== undefined ? msgIdx : state.messages.length;
+
+        let processedText = currentText;
+
+        // Close thinking trace only if it was actually in progress
+        const lastTagIdx = processedText.lastIndexOf('<unused94>');
+        const closeTagIdx = processedText.lastIndexOf('<unused95>');
+        if (lastTagIdx !== -1 && (closeTagIdx === -1 || closeTagIdx < lastTagIdx)) {
+            processedText += '<unused95>';
+        }
+
+        if (contentEl) {
+            contentEl.innerHTML = renderMarkdown(processedText, targetIdx) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
+        }
+
+        // Only push if we haven't already pushed an assistant message for this turn
+        if (processedText.trim().length > 0) {
+            // Check if last message is already assistant
+            const lastMsg = state.messages[state.messages.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+                lastMsg.content = processedText;
+            } else {
+                state.messages.push({ role: 'assistant', content: processedText });
+            }
+            persistMessages();
+        }
     }
 
     function stopGeneration() {
@@ -805,7 +836,8 @@
         if (!els.sendBtn) return;
         els.sendBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
         els.sendBtn.classList.remove('stop');
-        onInputChange(); // Correctly update button enabled/disabled state based on current input
+        els.sendBtn.disabled = false; // Force enable so user can send again
+        onInputChange();
     }
 
     // ── Image Upload & Analysis ───────────────────────────
