@@ -156,7 +156,11 @@
         abortController: null,
         expandedThoughts: new Set(), // Track which thoughts are manually expanded: "msgIdx-thoughtIdx"
         manualScroll: false, // Track if user has manually scrolled up during streaming
-        lightboxTransform: { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 },
+        lightboxTransform: {
+            scale: 1, x: 0, y: 0,
+            isDragging: false, startX: 0, startY: 0,
+            lastTouchDistance: 0, lastTouchCenter: { x: 0, y: 0 }
+        },
     };
 
     // ── DOM References ────────────────────────────────────
@@ -324,6 +328,11 @@
             img.addEventListener('mousedown', handleLightboxDragStart);
             window.addEventListener('mousemove', handleLightboxDragMove);
             window.addEventListener('mouseup', handleLightboxDragEnd);
+
+            // Touch support
+            img.addEventListener('touchstart', handleLightboxTouchStart, { passive: false });
+            img.addEventListener('touchmove', handleLightboxTouchMove, { passive: false });
+            img.addEventListener('touchend', handleLightboxTouchEnd);
         }
     }
 
@@ -1346,7 +1355,11 @@
         const lightbox = $('#lightbox');
         const lightboxImg = $('#lightboxImg');
         if (lightbox && lightboxImg) {
-            state.lightboxTransform = { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 };
+            state.lightboxTransform = {
+                scale: 1, x: 0, y: 0,
+                isDragging: false, startX: 0, startY: 0,
+                lastTouchDistance: 0, lastTouchCenter: { x: 0, y: 0 }
+            };
             updateLightboxTransform();
             lightboxImg.src = url;
             lightbox.classList.remove('hidden');
@@ -1405,6 +1418,68 @@
         state.lightboxTransform.isDragging = false;
         const img = $('#lightboxImg');
         if (img) img.style.cursor = state.lightboxTransform.scale > 1 ? 'grab' : 'default';
+    }
+
+    function handleLightboxTouchStart(e) {
+        if (e.touches.length === 1) {
+            state.lightboxTransform.isDragging = true;
+            state.lightboxTransform.startX = e.touches[0].clientX - state.lightboxTransform.x;
+            state.lightboxTransform.startY = e.touches[0].clientY - state.lightboxTransform.y;
+        } else if (e.touches.length === 2) {
+            state.lightboxTransform.isDragging = false;
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            state.lightboxTransform.lastTouchDistance = dist;
+            state.lightboxTransform.lastTouchCenter = {
+                x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+            };
+        }
+    }
+
+    function handleLightboxTouchMove(e) {
+        if (e.touches.length === 1 && state.lightboxTransform.isDragging) {
+            e.preventDefault();
+            state.lightboxTransform.x = e.touches[0].clientX - state.lightboxTransform.startX;
+            state.lightboxTransform.y = e.touches[0].clientY - state.lightboxTransform.startY;
+            updateLightboxTransform();
+        } else if (e.touches.length === 2) {
+            e.preventDefault();
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            const center = {
+                x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+            };
+
+            // Zoom
+            const factor = dist / state.lightboxTransform.lastTouchDistance;
+            state.lightboxTransform.scale *= factor;
+            state.lightboxTransform.scale = Math.max(0.1, Math.min(state.lightboxTransform.scale, 10));
+
+            // Pan based on center movement
+            state.lightboxTransform.x += center.x - state.lightboxTransform.lastTouchCenter.x;
+            state.lightboxTransform.y += center.y - state.lightboxTransform.lastTouchCenter.y;
+
+            state.lightboxTransform.lastTouchDistance = dist;
+            state.lightboxTransform.lastTouchCenter = center;
+
+            updateLightboxTransform();
+        }
+    }
+
+    function handleLightboxTouchEnd(e) {
+        state.lightboxTransform.isDragging = false;
+        if (e.touches.length === 1) {
+            // Transition back to single-touch dragging
+            state.lightboxTransform.isDragging = true;
+            state.lightboxTransform.startX = e.touches[0].clientX - state.lightboxTransform.x;
+            state.lightboxTransform.startY = e.touches[0].clientY - state.lightboxTransform.y;
+        }
     }
 
     // ── Boot ──────────────────────────────────────────────
