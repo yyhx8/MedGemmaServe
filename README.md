@@ -15,7 +15,7 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/your-org/MedGemmaServe.git
+git clone https://github.com/yyhx8/MedGemmaServe.git
 cd MedGemmaServe
 
 # Linux / macOS
