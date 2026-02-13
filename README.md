@@ -32,6 +32,8 @@ The installer will:
 - ✅ Configure your HuggingFace token (needed for gated models)
 - ✅ Optionally pre-download the model weights
 
+> 💡 **Tip:** You can also create a `.env` file in the root directory with `HF_TOKEN=your_token_here` to avoid passing it via CLI.
+
 ### 2. Run
 
 ```bash
@@ -48,7 +50,7 @@ Open `http://localhost:8000` in your browser. Done. 🎉
 ## 🎛️ CLI Reference
 
 ```
-medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--hf-token TOKEN]
+medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 ```
 
 | Flag | Description | Default |
@@ -57,6 +59,7 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--hf-token TOKEN]
 | `-p`, `--port` | Server port | `8000` |
 | `-ip`, `--host` | Bind address (WiFi IP or `0.0.0.0`) | `0.0.0.0` |
 | `-q`, `--quantize` | Enable 4-bit quantization (reduces VRAM ~50%) | off |
+| `--workers` | Number of server workers (uvicorn) | `1` |
 | `--hf-token` | HuggingFace API token | `$HF_TOKEN` env var |
 | `--max-model-len` | Max context length in tokens | `8192` |
 | `--gpu-memory-utilization` | GPU memory fraction to use | `0.90` |
@@ -77,6 +80,19 @@ medserver -m 27t -q
 # Pass HuggingFace token inline
 medserver -m 4 --hf-token hf_xxxxxxxxxxxxxxxxxxxxx
 ```
+
+---
+
+## 🚀 Dual-Engine Architecture
+
+MedServer automatically selects the most efficient inference engine based on your hardware:
+
+1.  **SGLang Engine** (High Performance):
+    - **Trigger:** Linux + NVIDIA Ampere GPU (or newer, CC >= 8.0) + `sglang` installed.
+    - **Benefits:** Up to 5x faster throughput, advanced memory management (RadixAttention), and optimized streaming.
+2.  **Transformers Engine** (Universal Compatibility):
+    - **Trigger:** Windows, older GPUs (e.g., T4/RTX 20-series), or if `sglang` is missing.
+    - **Benefits:** Runs everywhere PyTorch runs. Uses `bitsandbytes` for 4-bit quantization.
 
 ---
 
