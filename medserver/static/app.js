@@ -256,6 +256,13 @@
             els.sidebarOverlay.addEventListener('click', closeSidebar);
         }
 
+        // Global click to deselect messages
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.message')) {
+                $$('.message.selected').forEach(m => m.classList.remove('selected'));
+            }
+        });
+
         // Quick prompts
         $$('.quick-prompt').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -793,7 +800,7 @@
                             // Proactive scroll check before DOM update
                             const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
 
-                            contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx);
+                            contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx, true);
 
                             // Incrementally save every ~20 tokens to avoid loss on sudden crash/refresh
                             if (fullText.length % 80 === 0) {
@@ -823,7 +830,7 @@
             const lastUnused95 = finalizedText.lastIndexOf('<unused95>');
             if (lastUnused94 !== -1 && (lastUnused95 === -1 || lastUnused95 < lastUnused94)) {
                 finalizedText += '<unused95>';
-                contentEl.innerHTML = renderMarkdown(finalizedText, assistantMsgIdx);
+                contentEl.innerHTML = renderMarkdown(finalizedText, assistantMsgIdx, false);
             }
 
             const lastMsg = state.messages[state.messages.length - 1];
@@ -866,7 +873,7 @@
         }
 
         if (contentEl) {
-            contentEl.innerHTML = renderMarkdown(processedText, targetIdx) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
+            contentEl.innerHTML = renderMarkdown(processedText, targetIdx, false) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
         }
 
         // Only push if we haven't already pushed an assistant message for this turn
@@ -1034,7 +1041,7 @@
 
         contentText.querySelector('.btn-cancel').addEventListener('click', () => {
             const text = getMessageText(msg.content);
-            contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text);
+            contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index, false) : escapeHtml(text);
         });
 
         contentText.querySelector('.btn-save').addEventListener('click', async () => {
@@ -1063,7 +1070,7 @@
 
                 // Refresh only modified content to avoid scroll jump
                 const text = getMessageText(state.messages[index].content);
-                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text);
+                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index, false) : escapeHtml(text);
 
                 if (msg.role === 'user') {
                     // Update state.messages: Keep everything UP TO this message, discard the rest
@@ -1085,7 +1092,7 @@
                 }
             } else {
                 const text = getMessageText(msg.content);
-                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text);
+                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index, false) : escapeHtml(text);
             }
         });
     }
@@ -1212,11 +1219,21 @@
                     </button>
                 </div>
                 ${imagesHtml}
-                <div class="content-text">${role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text)}</div>
+                <div class="content-text">${role === 'assistant' ? renderMarkdown(text, index, state.isStreaming) : escapeHtml(text)}</div>
             </div>
         `;
 
         els.chatContainer.appendChild(msgDiv);
+
+        // Selection Toggle
+        msgDiv.addEventListener('click', (e) => {
+            // Don't toggle selection if clicking an action button, image, or thinking header
+            if (e.target.closest('.action-btn') || e.target.closest('.message-image') || e.target.closest('.thinking-header')) return;
+
+            const isSelected = msgDiv.classList.contains('selected');
+            $$('.message.selected').forEach(m => m.classList.remove('selected'));
+            if (!isSelected) msgDiv.classList.add('selected');
+        });
 
         // Bind actions
         msgDiv.querySelector('.copy-btn').addEventListener('click', () => {
@@ -1251,7 +1268,7 @@
     /**
      * Basic Markdown Parser with Code-Block Protection
      */
-    function renderMarkdown(text, msgIdx = -1) {
+    function renderMarkdown(text, msgIdx = -1, isStreaming = false) {
         if (!text) return '';
 
         const thoughts = [];
@@ -1307,12 +1324,12 @@
         thoughts.forEach((thought, i) => {
             const thoughtKey = `${msgIdx}-${i}`;
             const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
-            const isProcessing = !thought.isClosed;
+            const isProcessing = !thought.isClosed && isStreaming;
 
             // It should be collapsed if it's closed AND not manually expanded
             // If it's processing, it should be visible (not collapsed) unless manually toggled
-            let isCollapsed = thought.isClosed && !isManuallyExpanded;
-            if (!thought.isClosed && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
+            let isCollapsed = (thought.isClosed || !isStreaming) && !isManuallyExpanded;
+            if (!thought.isClosed && isStreaming && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
                 isCollapsed = true;
             }
 
