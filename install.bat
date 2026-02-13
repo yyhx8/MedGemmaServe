@@ -53,8 +53,15 @@ echo [2/5] Setting up virtual environment...
 if exist "%VENV_DIR%" (
     echo   [!] Virtual environment already exists. Reusing.
 ) else (
-    %PYTHON_CMD% -m venv %VENV_DIR%
-    echo   [OK] Created virtual environment
+    REM Ensure virtualenv is installed
+    %PYTHON_CMD% -m virtualenv --version >nul 2>&1
+    if !ERRORLEVEL! neq 0 (
+        echo   [*] Installing virtualenv...
+        %PYTHON_CMD% -m pip install virtualenv -q
+    )
+
+    %PYTHON_CMD% -m virtualenv %VENV_DIR%
+    echo   [OK] Created virtual environment (using virtualenv)
 )
 
 call %VENV_DIR%\Scripts\activate.bat

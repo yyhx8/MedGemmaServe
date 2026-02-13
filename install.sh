@@ -79,8 +79,14 @@ create_venv() {
     if [ -d "$VENV_DIR" ]; then
         warn "Virtual environment already exists. Reusing."
     else
-        $PYTHON_CMD -m venv "$VENV_DIR"
-        log "Created virtual environment at ${VENV_DIR}/"
+        # Ensure virtualenv is installed
+        if ! $PYTHON_CMD -m virtualenv --version &>/dev/null; then
+            info "Installing virtualenv..."
+            $PYTHON_CMD -m pip install --user virtualenv -q
+        fi
+
+        $PYTHON_CMD -m virtualenv "$VENV_DIR"
+        log "Created virtual environment at ${VENV_DIR}/ (using virtualenv)"
     fi
 
     # Activate
