@@ -176,6 +176,12 @@
     <div id="modelId" style="display:none"></div>
     <div id="serverUptime" style="display:none"></div>
 
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="lightbox hidden" onclick="window.closeLightbox()">
+        <span class="lightbox-close" onclick="window.closeLightbox()">&times;</span>
+        <img id="lightboxImg" src="" alt="Full view" onclick="event.stopPropagation()">
+    </div>
+
     <script src="/static/app.js"></script>
 </body>
 

@@ -769,14 +769,20 @@
                 if (contentEl.querySelector('.typing-indicator')) {
                     contentEl.innerHTML = '';
                 }
-                contentEl.innerHTML += ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
+
+                // Close thinking trace only if it was actually in progress
+                const lastTagIdx = fullText.lastIndexOf('<unused94>');
+                const closeTagIdx = fullText.lastIndexOf('<unused95>');
+                if (lastTagIdx !== -1 && (closeTagIdx === -1 || closeTagIdx < lastTagIdx)) {
+                    fullText += '<unused95>';
+                }
+
+                contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
+
                 // Save partial response if any
-                if (contentEl.innerText.trim().length > 0) {
-                    const cleanedText = contentEl.innerText.replace('(stopped)', '').trim();
-                    if (cleanedText) {
-                        state.messages.push({ role: 'assistant', content: cleanedText });
-                        persistMessages();
-                    }
+                if (fullText.trim().length > 0) {
+                    state.messages.push({ role: 'assistant', content: fullText });
+                    persistMessages();
                 }
             } else {
                 contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
@@ -799,7 +805,7 @@
         if (!els.sendBtn) return;
         els.sendBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
         els.sendBtn.classList.remove('stop');
-        els.sendBtn.disabled = true;
+        onInputChange(); // Correctly update button enabled/disabled state based on current input
     }
 
     // ── Image Upload & Analysis ───────────────────────────
@@ -845,7 +851,7 @@
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-item';
             wrapper.innerHTML = `
-                <img src="${data}">
+                <img src="${data}" onclick="window.openLightbox('${data}')" style="cursor: pointer;">
                 <button class="remove-preview-btn" onclick="window.removeImage(${index})">✕</button>
             `;
             els.imagePreviewContainer.appendChild(wrapper);
@@ -967,13 +973,19 @@
                 contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index) : escapeHtml(text);
 
                 if (msg.role === 'user') {
-                    // If user message was edited, we MUST clear subsequent and restart stream
+                    // Update state.messages: Keep everything UP TO this message, discard the rest
+                    state.messages = state.messages.slice(0, index + 1);
+                    persistMessages();
+
+                    // Refresh UI to show only messages up to the current one
                     const currentScroll = els.chatContainer.scrollTop;
                     els.chatContainer.innerHTML = '';
                     state.messages.forEach((m, idx) => {
                         addMessage(m.role, m.content, m.imageData || null, false, idx);
                     });
                     els.chatContainer.scrollTop = currentScroll;
+
+                    // Trigger new generation which will replace the old response
                     await streamChat();
                 } else {
                     renderRegenerateButton();
@@ -1082,12 +1094,12 @@
         if (imageDataUrls && Array.isArray(imageDataUrls) && imageDataUrls.length > 0) {
             imagesHtml = '<div class="message-images-grid">';
             imageDataUrls.forEach(url => {
-                imagesHtml += `<img class="message-image" src="${url}" alt="Attached medical image" onclick="window.open('${url}', '_blank')">`;
+                imagesHtml += `<img class="message-image" src="${url}" alt="Attached medical image" onclick="window.openLightbox('${url}')">`;
             });
             imagesHtml += '</div>';
         } else if (imageDataUrls && typeof imageDataUrls === 'string') {
             // Backward compatibility for single string
-            imagesHtml = `<img class="message-image" src="${imageDataUrls}" alt="Attached medical image" onclick="window.open('${imageDataUrls}', '_blank')">`;
+            imagesHtml = `<img class="message-image" src="${imageDataUrls}" alt="Attached medical image" onclick="window.openLightbox('${imageDataUrls}')">`;
         }
 
         msgDiv.innerHTML = `
@@ -1251,6 +1263,23 @@
         div.textContent = text;
         return div.innerHTML;
     }
+
+    // ── Lightbox ──────────────────────────────────────────
+    window.openLightbox = function (url) {
+        const lightbox = $('#lightbox');
+        const lightboxImg = $('#lightboxImg');
+        if (lightbox && lightboxImg) {
+            lightboxImg.src = url;
+            lightbox.classList.remove('hidden');
+        }
+    };
+
+    window.closeLightbox = function () {
+        const lightbox = $('#lightbox');
+        if (lightbox) {
+            lightbox.classList.add('hidden');
+        }
+    };
 
     // ── Boot ──────────────────────────────────────────────
     if (document.readyState === 'loading') {
