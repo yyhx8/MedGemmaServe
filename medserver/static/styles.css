@@ -276,11 +276,12 @@ body {
 
 .message {
     width: 100%;
-    padding: 24px;
+    padding: 24px 32px;
     display: flex;
     gap: 20px;
     animation: fadeIn 0.4s ease;
     border-bottom: 1px solid var(--border);
+    position: relative;
 }
 
 .message:last-child {
@@ -288,12 +289,12 @@ body {
 }
 
 .conversation-pair {
-    max-width: var(--max-content-width);
+    width: 95%;
+    max-width: 1000px;
     margin: 0 auto 32px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: rgba(255, 255, 255, 0.01);
-    overflow: hidden;
     transition: all 0.3s ease;
     animation: fadeIn 0.4s ease;
 }
@@ -375,15 +376,15 @@ body {
 
 .message-content h1 { 
     font-size: 1.5rem; 
-    margin-left: 20px;
+    margin-left: 30px;
 }
 .message-content h2 { 
     font-size: 1.3rem; 
-    margin-left: 40px;
+    margin-left: 60px;
 }
 .message-content h3 { 
     font-size: 1.1rem; 
-    margin-left: 60px;
+    margin-left: 90px;
 }
 
 .message-content p {
@@ -623,8 +624,8 @@ textarea {
 
 .message-actions {
     position: absolute;
-    top: -16px;
-    right: 0;
+    top: 12px;
+    right: 12px;
     display: flex;
     gap: 6px;
     opacity: 0;
