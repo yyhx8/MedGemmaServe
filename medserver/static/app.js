@@ -468,9 +468,13 @@
         const chat = ChatStore.get(chatId);
         if (!chat) return;
 
+        const isSameChat = state.activeChatId === chatId;
         state.activeChatId = chatId;
         state.messages = [...chat.messages];
-        state.expandedThoughts.clear();
+        // Only clear expanded thoughts if we are switching to a COMPLETELY different conversation
+        if (!isSameChat) {
+            state.expandedThoughts.clear();
+        }
         ChatStore.setActiveChatId(chatId);
 
         // Render messages
@@ -487,8 +491,6 @@
                 scrollToBottom();
             }
         }
-
-        // removeImage(); // Keep attached images when switching chats
     }
 
     function startNewChat() {
@@ -1120,13 +1122,11 @@
         let startIdx = index;
         let count = 1;
         
-        // If we delete a user message, we delete the corresponding assistant response too
         if (state.messages[index].role === 'user') {
             if (state.messages[index + 1] && state.messages[index + 1].role === 'assistant') {
                 count = 2;
             }
         } else {
-            // If deleting assistant message directly (though UI hides btn), delete user before it too
             startIdx = index - 1;
             count = 2;
         }
@@ -1137,9 +1137,11 @@
         if (state.messages.length === 0) {
             showWelcomeScreen();
         } else {
-            // Re-render and restore scroll
             switchToChat(state.activeChatId);
-            els.chatContainer.scrollTop = scrollPos;
+            // RequestAnimationFrame ensures DOM is ready before we set scroll
+            requestAnimationFrame(() => {
+                if (els.chatContainer) els.chatContainer.scrollTop = scrollPos;
+            });
         }
     }
 
@@ -1206,21 +1208,35 @@
 
         // Handle Pairing - Look for the actual last pair div, ignoring buttons/etc
         let pairDiv;
-        const existingPairs = els.chatContainer.querySelectorAll('.conversation-pair');
+        const existingPairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
         
         if (role === 'user') {
             pairDiv = document.createElement('div');
             pairDiv.className = 'conversation-pair';
             if (!animate) pairDiv.style.animation = 'none';
-            els.chatContainer.appendChild(pairDiv);
+            // Insert before regenerate button if it exists, otherwise append
+            const regenBtn = $('#regenerateContainer');
+            if (regenBtn) {
+                els.chatContainer.insertBefore(pairDiv, regenBtn);
+            } else {
+                els.chatContainer.appendChild(pairDiv);
+            }
         } else {
-            pairDiv = existingPairs[existingPairs.length - 1];
-            // Fallback: If no pair exists or it already has an assistant response, create new
-            if (!pairDiv || pairDiv.querySelector('.message.assistant')) {
+            // Find the last pair that does NOT have an assistant message yet
+            // This is crucial for regeneration where the pair exists but is empty of assistant response
+            pairDiv = existingPairs.reverse().find(p => !p.querySelector('.message.assistant'));
+            
+            // Fallback: If no suitable pair exists, create one
+            if (!pairDiv) {
                 pairDiv = document.createElement('div');
                 pairDiv.className = 'conversation-pair';
                 if (!animate) pairDiv.style.animation = 'none';
-                els.chatContainer.appendChild(pairDiv);
+                const regenBtn = $('#regenerateContainer');
+                if (regenBtn) {
+                    els.chatContainer.insertBefore(pairDiv, regenBtn);
+                } else {
+                    els.chatContainer.appendChild(pairDiv);
+                }
             }
         }
 
