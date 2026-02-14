@@ -394,15 +394,9 @@ body {
 
 .message-content ul,
 .message-content ol {
-    margin: 16px 0;
-    padding-left: 32px; /* Ensure space for dots/numbers */
+    margin: 16px 0 24px 0;
+    padding-left: 36px;
     display: block;
-}
-
-.message-content ul,
-.message-content ol {
-    margin: 16px 0;
-    padding-left: 24px;
 }
 
 .message-content li {

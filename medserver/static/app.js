@@ -1066,7 +1066,7 @@
         contentText.querySelector('.btn-save').addEventListener('click', async () => {
             const newContent = textarea.value.trim();
             if (newContent && newContent !== currentText) {
-                // Update message and remove all subsequent messages
+                // Update message content in state
                 if (Array.isArray(msg.content)) {
                     // Update text part in structured content while preserving other parts (like images)
                     let found = false;
@@ -1091,22 +1091,7 @@
                 const text = getMessageText(state.messages[index].content);
                 contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index, false) : escapeHtml(text);
 
-                if (msg.role === 'user') {
-                    // Update state.messages: Keep everything UP TO this message, discard the rest
-                    state.messages = state.messages.slice(0, index + 1);
-                    persistMessages();
-
-                    // Refresh UI to show only messages up to the current one
-                    const currentScroll = els.chatContainer.scrollTop;
-                    els.chatContainer.innerHTML = '';
-                    state.messages.forEach((m, idx) => {
-                        addMessage(m.role, m.content, m.imageData || null, false, idx);
-                    });
-                    els.chatContainer.scrollTop = currentScroll;
-
-                    // Trigger new generation which will replace the old response
-                    await streamChat();
-                } else {
+                if (msg.role === 'assistant') {
                     renderRegenerateButton();
                 }
             } else {
@@ -1222,8 +1207,8 @@
                 els.chatContainer.appendChild(pairDiv);
             }
         } else {
-            // Assistant: search for the first pair that doesn't have an assistant message
-            pairDiv = allPairs.find(p => !p.querySelector('.message.assistant'));
+            // Assistant: search for the latest pair that has a user message but no assistant message
+            pairDiv = allPairs.reverse().find(p => p.querySelector('.message.user') && !p.querySelector('.message.assistant'));
             
             if (!pairDiv) {
                 pairDiv = document.createElement('div');
@@ -1371,30 +1356,49 @@
         });
 
         // 3. Regular Markdown (Block level)
-        // Improved List Handling: Using a line-by-line processor for robust streaming
         const rawLines = html.split('\n');
-        let inList = false;
+        let listStack = [];
         const processedLines = [];
 
         rawLines.forEach(line => {
             const trimmed = line.trim();
-            const listMatch = trimmed.match(/^([-*] |\d+\. )/);
+            const olMatch = trimmed.match(/^(\d+)\. /);
+            const ulMatch = trimmed.match(/^([-*]) /);
             
-            if (listMatch) {
-                if (!inList) {
-                    processedLines.push('<ul>');
-                    inList = true;
+            const currentListType = listStack.length > 0 ? listStack[listStack.length - 1] : null;
+
+            if (olMatch) {
+                if (currentListType !== 'ol') {
+                    if (currentListType === 'ul') {
+                        processedLines.push('</ul>');
+                        listStack.pop();
+                    }
+                    processedLines.push('<ol>');
+                    listStack.push('ol');
                 }
-                processedLines.push(`<li>${trimmed.replace(listMatch[0], '')}</li>`);
+                processedLines.push(`<li>${trimmed.replace(olMatch[0], '')}</li>`);
+            } else if (ulMatch) {
+                if (currentListType !== 'ul') {
+                    if (currentListType === 'ol') {
+                        processedLines.push('</ol>');
+                        listStack.pop();
+                    }
+                    processedLines.push('<ul>');
+                    listStack.push('ul');
+                }
+                processedLines.push(`<li>${trimmed.replace(ulMatch[0], '')}</li>`);
             } else {
-                if (inList) {
-                    processedLines.push('</ul>');
-                    inList = false;
+                while (listStack.length > 0) {
+                    const type = listStack.pop();
+                    processedLines.push(type === 'ol' ? '</ol>' : '</ul>');
                 }
                 processedLines.push(line);
             }
         });
-        if (inList) processedLines.push('</ul>');
+        while (listStack.length > 0) {
+            const type = listStack.pop();
+            processedLines.push(type === 'ol' ? '</ol>' : '</ul>');
+        }
         html = processedLines.join('\n');
 
         // Headers
