@@ -10,6 +10,19 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 
 ---
 
+## ⚡ Key Features
+
+- **🚀 One-command Setup**: Automated installer for Linux, macOS, and Windows.
+- **🧠 Clinical Reasoning**: Native support for MedGemma "Thinking Process" traces with collapsible UI.
+- **🖼️ Multimodal Mastery**: Analysis of CT, MRI, and X-ray images with an integrated clinical lightbox (zoom/pan support).
+- **💎 Premium Clinical UI**: Professional dark-mode interface designed for clinical environments.
+- **📂 Session Persistence**: Automatic local history management with persistent chat sessions.
+- **📱 Mobile Optimized**: Responsive design with touch-friendly lightbox and pinch-to-zoom support.
+- **⚙️ Dual-Engine Architecture**: Automatically selects the fastest inference engine (SGLang or Transformers).
+- **📊 Live System Status**: Integrated hardware widget showing GPU info and server health.
+
+---
+
 ## ⚡ Quick Start
 
 ### 1. Clone & Install
@@ -59,6 +72,7 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 | `-p`, `--port` | Server port | `8000` |
 | `-ip`, `--host` | Bind address (WiFi IP or `0.0.0.0`) | `0.0.0.0` |
 | `-q`, `--quantize` | Enable 4-bit quantization (reduces VRAM ~50%) | off |
+| `-v`, `--version` | Show program's version number and exit | — |
 | `--workers` | Number of server workers (uvicorn) | `1` |
 | `--hf-token` | HuggingFace API token | `$HF_TOKEN` env var |
 | `--max-model-len` | Max context length in tokens | `8192` |

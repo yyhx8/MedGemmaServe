@@ -17,8 +17,8 @@ setlocal enabledelayedexpansion
 
 echo.
 echo   ======================================================
-echo        MedServer — Auto Installer (Windows)
-echo        MedGemma Clinical AI Server v1.0.0
+echo         MedServer - Auto Installer (Windows)
+echo         MedGemma Clinical AI Server v1.0.0
 echo   ======================================================
 echo.
 
