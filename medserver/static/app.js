@@ -723,7 +723,7 @@
         await streamChat();
     }
 
-    async function streamChat() {
+    async function streamChat(insertIndex = -1) {
         if (!els.sendBtn) return;
 
         state.isStreaming = true;
@@ -735,19 +735,24 @@
 
         removeRegenerateButton();
 
-        const assistantMsgIdx = state.messages.length;
+        const assistantMsgIdx = insertIndex !== -1 ? insertIndex : state.messages.length;
         const msgEl = addMessage('assistant', '', null, true, assistantMsgIdx);
         const contentEl = msgEl.querySelector('.message-content .content-text');
 
         contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
         try {
+            // Determine which messages to send
+            const messagesToSend = insertIndex !== -1 
+                ? state.messages.slice(0, insertIndex) 
+                : state.messages;
+
             const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 signal: state.abortController.signal,
                 body: JSON.stringify({
-                    messages: state.messages.map(m => ({
+                    messages: messagesToSend.map(m => ({
                         role: m.role,
                         content: m.content,
                         image_data: m.imageData || []
@@ -805,20 +810,22 @@
 
                             contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx, state.isStreaming);
 
-                            // Incrementally save every ~20 tokens to avoid loss on sudden crash/refresh
+                            // Incrementally save every ~80 tokens
                             if (fullText.length % 80 === 0) {
-                                // Update current state but don't finalize yet
-                                // We update the last message if it's assistant, or push a new one
-                                const lastMsg = state.messages[state.messages.length - 1];
-                                if (lastMsg && lastMsg.role === 'assistant') {
-                                    lastMsg.content = fullText;
+                                if (insertIndex !== -1) {
+                                    state.messages[assistantMsgIdx] = { role: 'assistant', content: fullText };
                                 } else {
-                                    state.messages.push({ role: 'assistant', content: fullText });
+                                    const lastMsg = state.messages[state.messages.length - 1];
+                                    if (lastMsg && lastMsg.role === 'assistant') {
+                                        lastMsg.content = fullText;
+                                    } else {
+                                        state.messages.push({ role: 'assistant', content: fullText });
+                                    }
                                 }
                                 ChatStore.update(state.activeChatId, state.messages);
                             }
 
-                            // Sticky scroll: if we were at the bottom or it's a new generation, stay at bottom
+                            // Sticky scroll
                             if (isAtBottom && !state.manualScroll) {
                                 els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
                             }
@@ -827,7 +834,7 @@
                 }
             }
 
-            // Replace or push the final assistant message
+            // Finalize
             let finalizedText = fullText;
             const lastUnused94 = finalizedText.lastIndexOf('<unused94>');
             const lastUnused95 = finalizedText.lastIndexOf('<unused95>');
@@ -836,11 +843,15 @@
                 contentEl.innerHTML = renderMarkdown(finalizedText, assistantMsgIdx, false);
             }
 
-            const lastMsg = state.messages[state.messages.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-                lastMsg.content = finalizedText;
+            if (insertIndex !== -1) {
+                state.messages[assistantMsgIdx] = { role: 'assistant', content: finalizedText };
             } else {
-                state.messages.push({ role: 'assistant', content: finalizedText });
+                const lastMsg = state.messages[state.messages.length - 1];
+                if (lastMsg && lastMsg.role === 'assistant') {
+                    lastMsg.content = finalizedText;
+                } else {
+                    state.messages.push({ role: 'assistant', content: finalizedText });
+                }
             }
             persistMessages();
 
@@ -1068,7 +1079,6 @@
             if (newContent && newContent !== currentText) {
                 // Update message content in state
                 if (Array.isArray(msg.content)) {
-                    // Update text part in structured content while preserving other parts (like images)
                     let found = false;
                     const newContentArray = msg.content.map(item => {
                         if (item.type === 'text') {
@@ -1087,11 +1097,32 @@
 
                 persistMessages();
 
-                // Refresh only modified content to avoid scroll jump
+                // Refresh modified user content
                 const text = getMessageText(state.messages[index].content);
                 contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index, false) : escapeHtml(text);
 
-                if (msg.role === 'assistant') {
+                if (msg.role === 'user') {
+                    // Find if there is an assistant message in the same pair box
+                    const pairDiv = msgEl.closest('.conversation-pair');
+                    const assistantMsgEl = pairDiv ? pairDiv.querySelector('.message.assistant') : null;
+                    
+                    let assistantIdx = -1;
+                    if (state.messages[index + 1] && state.messages[index + 1].role === 'assistant') {
+                        assistantIdx = index + 1;
+                    }
+
+                    if (assistantMsgEl) {
+                        assistantMsgEl.remove();
+                    }
+
+                    // Trigger new generation for the assistant slot
+                    if (assistantIdx !== -1) {
+                        await streamChat(assistantIdx);
+                    } else {
+                        // If there was no assistant message (e.g. last message was user), just send new
+                        await streamChat();
+                    }
+                } else {
                     renderRegenerateButton();
                 }
             } else {
@@ -1145,14 +1176,29 @@
 
         if (lastUserIdx === -1) return;
 
-        // Remove all messages after last user message
-        state.messages = state.messages.slice(0, lastUserIdx + 1);
+        const assistantIdx = lastUserIdx + 1;
+        const isAssistantExists = state.messages[assistantIdx] && state.messages[assistantIdx].role === 'assistant';
 
-        // Refresh UI
-        switchToChat(state.activeChatId);
-        scrollToBottom(true);
+        // Find the pair box for this user message
+        const allPairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
+        const targetPair = allPairs.find(p => {
+            const userMsg = p.querySelector('.message.user');
+            return userMsg && parseInt(userMsg.dataset.index) === lastUserIdx;
+        });
 
-        await streamChat();
+        if (targetPair) {
+            const oldAssistantMsg = targetPair.querySelector('.message.assistant');
+            if (oldAssistantMsg) {
+                oldAssistantMsg.remove();
+            }
+        }
+
+        // Trigger generation at the assistant index
+        if (isAssistantExists) {
+            await streamChat(assistantIdx);
+        } else {
+            await streamChat();
+        }
     }
 
     function renderRegenerateButton() {
