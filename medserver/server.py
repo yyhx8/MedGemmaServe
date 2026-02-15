@@ -152,13 +152,13 @@ def create_app(
 
     @app.post("/api/chat")
     @limiter.limit(rate_limit)
-    async def chat(request: ChatRequest, raw_request: Request):
+    async def chat(chat_data: ChatRequest, request: Request):
         """Chat completions — streaming or non-streaming."""
         if not engine.is_loaded:
             raise HTTPException(503, "Model is still loading. Please wait.")
 
         # Per-user lock check
-        user_ip = get_remote_address(raw_request)
+        user_ip = get_remote_address(request)
         lock = get_user_lock(user_ip)
         
         if lock.locked():
@@ -168,13 +168,13 @@ def create_app(
              )
 
         full_messages = []
-        effective_system_prompt = request.system_prompt if request.system_prompt is not None else SYSTEM_PROMPT
+        effective_system_prompt = chat_data.system_prompt if chat_data.system_prompt is not None else SYSTEM_PROMPT
         if effective_system_prompt:
             full_messages.append({"role": "system", "content": effective_system_prompt})
         
         images = []
         
-        for m in request.messages:
+        for m in chat_data.messages:
             # Create a structured message for the engine
             msg_content = m.content
             
@@ -207,10 +207,10 @@ def create_app(
             logger.warning(f"Model {model_info.name} does not support images. Ignoring attached images.")
             images = []
 
-        if request.stream:
+        if chat_data.stream:
             stop_event = threading.Event()
             return StreamingResponse(
-                _stream_chat(raw_request, full_messages, request.max_tokens, request.temperature, images if images else None, stop_event, lock),
+                _stream_chat(request, full_messages, chat_data.max_tokens, chat_data.temperature, images if images else None, stop_event, lock),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -222,8 +222,8 @@ def create_app(
             async with lock:
                 result = await engine.generate(
                     prompt=full_messages,
-                    max_tokens=request.max_tokens,
-                    temperature=request.temperature,
+                    max_tokens=chat_data.max_tokens,
+                    temperature=chat_data.temperature,
                     images=images if images else None,
                 )
             return {"response": result}
@@ -254,7 +254,7 @@ def create_app(
     @app.post("/api/analyze")
     @limiter.limit(rate_limit)
     async def analyze_image(
-        raw_request: Request,
+        request: Request,
         image: UploadFile = File(...),
         prompt: str = Form("Analyze this medical image and provide clinical findings."),
         max_tokens: int = Form(2048),
@@ -272,7 +272,7 @@ def create_app(
             raise HTTPException(503, "Model is still loading. Please wait.")
 
         # Per-user lock check
-        user_ip = get_remote_address(raw_request)
+        user_ip = get_remote_address(request)
         lock = get_user_lock(user_ip)
         
         if lock.locked():
@@ -302,7 +302,7 @@ def create_app(
 
         stop_event = threading.Event()
         return StreamingResponse(
-            _stream_analyze(raw_request, messages, [pil_image], max_tokens, temperature, stop_event, lock),
+            _stream_analyze(request, messages, [pil_image], max_tokens, temperature, stop_event, lock),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
