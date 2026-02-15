@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MedServer</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+</head>
+
+<body>
+    <div class="app-bg"></div>
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="spinner"></div>
+        <div style="font-weight: 500; font-size: 1.1rem;">MedServer</div>
+        <div id="loadingSubtext" style="color: var(--text-muted); font-size: 0.9rem;">Initializing...</div>
+        <button class="btn-retry" onclick="window.location.reload()">Retry Connection</button>
+    </div>
+
+    <!-- Disclaimer Modal -->
+    <div class="modal-overlay hidden" id="disclaimerModal">
+        <div class="modal">
+            <div style="font-size: 2rem; margin-bottom: 16px;">⚕️</div>
+            <h2 style="margin-bottom: 12px; font-weight: 600;">Clinical AI Notice</h2>
+            <div style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 24px;">
+                <p>MedGemma is a research model. AI outputs require professional clinical validation.</p>
+                <ul style="margin: 12px 0; padding-left: 20px;">
+                    <li>Not a medical device</li>
+                    <li>Not for direct patient care</li>
+                    <li>Always verify with qualified personnel</li>
+                </ul>
+            </div>
+            <button class="btn-send" id="disclaimerAccept"
+                style="width: 100%; height: 48px; border-radius: 12px; font-weight: 600;">
+                Accept & Proceed
+            </button>
+        </div>
+    </div>
+
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">M</div>
+                    <span>MedGemma</span>
+                </div>
+            </div>
+
+            <div class="sidebar-content">
+                <div class="sidebar-section">
+                    <button id="newChatBtn" class="btn-send"
+                        style="width: 100%; height: 40px; border-radius: 10px; font-size: 0.85rem; font-weight: 600;">
+                        + New Session
+                    </button>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="sidebar-label">System Prompt</div>
+                    <textarea id="systemPromptInput" class="sidebar-textarea"
+                        placeholder="Default clinical prompt..."></textarea>
+                </div>
+
+                <div class="sidebar-section" style="flex: 1;">
+                    <div class="sidebar-label">Recent Chats</div>
+                    <div id="chatHistoryList" class="chat-history-list">
+                        <!-- Populated by app.js -->
+                    </div>
+                </div>
+
+                <!-- Minimal Info Widget -->
+                <div class="sidebar-section info-widget"
+                    style="border-top: 1px solid var(--border); padding-top: 20px;">
+                    <div class="sidebar-label">Active Engine</div>
+                    <div id="modelName"
+                        style="font-size: 0.85rem; font-weight: 500; color: var(--text-main); margin-bottom: 4px;">--
+                    </div>
+                    <div id="modelBadges" style="display: flex; gap: 4px; margin-bottom: 12px;"></div>
+
+                    <div class="hw-stats"
+                        style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--text-dim);">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Hardware</span>
+                            <span id="gpuName" style="color: var(--text-muted);">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>VRAM</span>
+                            <span id="gpuVram" style="color: var(--text-muted);">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Host</span>
+                            <span id="networkBadge" style="color: var(--text-muted);">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button id="clearHistoryBtn" class="btn-ghost">
+                    <span>🗑️</span> Clear History
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Area -->
+        <main class="main-content">
+            <header class="main-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button id="sidebarToggle" class="sidebar-toggle">☰</button>
+                    <div class="status-indicator">
+                        <div class="status-dot" id="statusDot"></div>
+                        <span id="statusText">Connecting</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="chat-container" id="chatContainer">
+                <div id="imageUploadArea"
+                    style="position: absolute; inset: 0; pointer-events: none; border: 2px dashed transparent; transition: all 0.2s ease;">
+                </div>
+                <!-- Welcome Screen (populated by app.js) -->
+            </div>
+
+            <!-- Jump to Bottom Button -->
+            <button id="jumpToBottomBtn" class="jump-to-bottom hidden">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <polyline points="19 12 12 19 5 12"></polyline>
+                </svg>
+            </button>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-container">
+                    <!-- Image Preview moved inside -->
+                    <div id="imagePreviewContainer" class="hidden">
+                        <!-- Multiple images will be injected here -->
+                    </div>
+
+                    <div class="input-wrapper">
+                        <button class="attach-btn" onclick="document.getElementById('imageInput').click()"
+                            title="Attach image">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                <polyline points="21 15 16 10 5 21"></polyline>
+                            </svg>
+                        </button>
+                        <textarea id="chatInput" placeholder="Enter clinical inquiry..." rows="1"></textarea>
+                        <button class="btn-send" id="sendBtn" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div style="text-align: center; margin-top: 12px; font-size: 0.7rem; color: var(--text-dim);">
+                    Precise medical reasoning powered by MedGemma • <span id="tokenCounter"></span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Hidden Inputs -->
+    <input type="file" id="imageInput" hidden accept="image/*" multiple>
+    <div id="imageSection" style="display:none"></div>
+    <div id="modelId" style="display:none"></div>
+    <div id="serverUptime" style="display:none"></div>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="lightbox hidden" onclick="window.closeLightbox()">
+        <span class="lightbox-close" onclick="window.closeLightbox()">&times;</span>
+        <img id="lightboxImg" src="" alt="Full view" onclick="event.stopPropagation()">
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
