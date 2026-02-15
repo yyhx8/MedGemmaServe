@@ -1403,47 +1403,53 @@
 
         // 3. Regular Markdown (Block level)
         const rawLines = html.split('\n');
-        let listStack = [];
+        let listStack = []; // Elements: { type: 'ol' | 'ul', indent: number }
         const processedLines = [];
 
         rawLines.forEach(line => {
             const trimmed = line.trim();
+            if (trimmed === '' && listStack.length > 0) {
+                processedLines.push(line);
+                return;
+            }
+
             const olMatch = trimmed.match(/^(\d+)\. /);
             const ulMatch = trimmed.match(/^([-*]) /);
-            
-            const currentListType = listStack.length > 0 ? listStack[listStack.length - 1] : null;
+            const indent = line.match(/^\s*/)[0].length;
 
-            if (olMatch) {
-                if (currentListType !== 'ol') {
-                    if (currentListType === 'ul') {
-                        processedLines.push('</ul>');
-                        listStack.pop();
-                    }
-                    processedLines.push('<ol>');
-                    listStack.push('ol');
+            if (olMatch || ulMatch) {
+                const type = olMatch ? 'ol' : 'ul';
+                const marker = olMatch ? olMatch[0] : ulMatch[0];
+
+                while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
+                    const popped = listStack.pop();
+                    processedLines.push(popped.type === 'ol' ? '</ol>' : '</ul>');
                 }
-                processedLines.push(`<li>${trimmed.replace(olMatch[0], '')}</li>`);
-            } else if (ulMatch) {
-                if (currentListType !== 'ul') {
-                    if (currentListType === 'ol') {
-                        processedLines.push('</ol>');
-                        listStack.pop();
-                    }
-                    processedLines.push('<ul>');
-                    listStack.push('ul');
+
+                const current = listStack[listStack.length - 1];
+
+                if (!current || current.indent < indent) {
+                    processedLines.push(type === 'ol' ? '<ol>' : '<ul>');
+                    listStack.push({ type, indent });
+                } else if (current.type !== type) {
+                    processedLines.push(current.type === 'ol' ? '</ol>' : '</ul>');
+                    listStack.pop();
+                    processedLines.push(type === 'ol' ? '<ol>' : '<ul>');
+                    listStack.push({ type, indent });
                 }
-                processedLines.push(`<li>${trimmed.replace(ulMatch[0], '')}</li>`);
+
+                processedLines.push(`<li>${trimmed.substring(marker.length)}</li>`);
             } else {
                 while (listStack.length > 0) {
-                    const type = listStack.pop();
-                    processedLines.push(type === 'ol' ? '</ol>' : '</ul>');
+                    const popped = listStack.pop();
+                    processedLines.push(popped.type === 'ol' ? '</ol>' : '</ul>');
                 }
                 processedLines.push(line);
             }
         });
         while (listStack.length > 0) {
-            const type = listStack.pop();
-            processedLines.push(type === 'ol' ? '</ol>' : '</ul>');
+            const popped = listStack.pop();
+            processedLines.push(popped.type === 'ol' ? '</ol>' : '</ul>');
         }
         html = processedLines.join('\n');
 
