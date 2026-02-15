@@ -25,6 +25,10 @@ from medserver.models import (
     list_models,
 )
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 logger = logging.getLogger("medserver.server")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -43,6 +47,8 @@ def create_app(
     host: str = "0.0.0.0",
     port: int = 8000,
     model_key: str = "4",
+    max_user_streams: int = 1,
+    rate_limit: str = "20/minute",
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
 
@@ -51,11 +57,23 @@ def create_app(
     model_info = get_model(model_key)
     start_time = time.time()
 
+    # Rate Limiter setup
+    limiter = Limiter(key_func=get_remote_address)
     app = FastAPI(
         title=__app_name__,
         version=__version__,
         description="Self-hosted MedGemma clinical AI server",
     )
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    # Per-user concurrency locks
+    user_locks = {}
+
+    def get_user_lock(ip: str) -> asyncio.Semaphore:
+        if ip not in user_locks:
+            user_locks[ip] = asyncio.Semaphore(max_user_streams)
+        return user_locks[ip]
 
     # Global Error Handling
     @app.exception_handler(RuntimeError)
@@ -133,10 +151,21 @@ def create_app(
         }
 
     @app.post("/api/chat")
+    @limiter.limit(rate_limit)
     async def chat(request: ChatRequest, raw_request: Request):
         """Chat completions — streaming or non-streaming."""
         if not engine.is_loaded:
             raise HTTPException(503, "Model is still loading. Please wait.")
+
+        # Per-user lock check
+        user_ip = get_remote_address(raw_request)
+        lock = get_user_lock(user_ip)
+        
+        if lock.locked():
+             raise HTTPException(
+                 429, 
+                 f"You already have {max_user_streams} active stream(s). Please wait for them to finish."
+             )
 
         full_messages = []
         effective_system_prompt = request.system_prompt if request.system_prompt is not None else SYSTEM_PROMPT
@@ -181,7 +210,7 @@ def create_app(
         if request.stream:
             stop_event = threading.Event()
             return StreamingResponse(
-                _stream_chat(raw_request, full_messages, request.max_tokens, request.temperature, images if images else None, stop_event),
+                _stream_chat(raw_request, full_messages, request.max_tokens, request.temperature, images if images else None, stop_event, lock),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -190,37 +219,40 @@ def create_app(
                 },
             )
         else:
-            result = await engine.generate(
-                prompt=full_messages,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                images=images if images else None,
-            )
+            async with lock:
+                result = await engine.generate(
+                    prompt=full_messages,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    images=images if images else None,
+                )
             return {"response": result}
 
-    async def _stream_chat(request: Request, messages: list, max_tokens: int, temperature: float, images: Optional[list], stop_event: threading.Event):
+    async def _stream_chat(request: Request, messages: list, max_tokens: int, temperature: float, images: Optional[list], stop_event: threading.Event, lock: asyncio.Semaphore):
         """SSE stream generator for chat responses."""
-        try:
-            async for token in engine.stream_generate(
-                prompt=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                images=images,
-                stop_event=stop_event
-            ):
-                if await request.is_disconnected():
-                    stop_event.set()
-                    break
-                data = json.dumps({"token": token})
-                yield f"data: {data}\n\n"
-            yield "data: [DONE]\n\n"
-        except Exception as e:
-            logger.error(f"Streaming error: {e}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        finally:
-            stop_event.set()
+        async with lock:
+            try:
+                async for token in engine.stream_generate(
+                    prompt=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    images=images,
+                    stop_event=stop_event
+                ):
+                    if await request.is_disconnected():
+                        stop_event.set()
+                        break
+                    data = json.dumps({"token": token})
+                    yield f"data: {data}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            finally:
+                stop_event.set()
 
     @app.post("/api/analyze")
+    @limiter.limit(rate_limit)
     async def analyze_image(
         raw_request: Request,
         image: UploadFile = File(...),
@@ -238,6 +270,16 @@ def create_app(
 
         if not engine.is_loaded:
             raise HTTPException(503, "Model is still loading. Please wait.")
+
+        # Per-user lock check
+        user_ip = get_remote_address(raw_request)
+        lock = get_user_lock(user_ip)
+        
+        if lock.locked():
+             raise HTTPException(
+                 429, 
+                 f"You already have {max_user_streams} active stream(s). Please wait for them to finish."
+             )
 
         # Read and validate image
         contents = await image.read()
@@ -260,7 +302,7 @@ def create_app(
 
         stop_event = threading.Event()
         return StreamingResponse(
-            _stream_analyze(raw_request, messages, [pil_image], max_tokens, temperature, stop_event),
+            _stream_analyze(raw_request, messages, [pil_image], max_tokens, temperature, stop_event, lock),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -276,26 +318,28 @@ def create_app(
         max_tokens: int,
         temperature: float,
         stop_event: threading.Event,
+        lock: asyncio.Semaphore,
     ):
         """SSE stream generator for image analysis."""
-        try:
-            async for token in engine.stream_generate(
-                prompt=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                images=images,
-                stop_event=stop_event
-            ):
-                if await request.is_disconnected():
-                    stop_event.set()
-                    break
-                data = json.dumps({"token": token})
-                yield f"data: {data}\n\n"
-            yield "data: [DONE]\n\n"
-        except Exception as e:
-            logger.error(f"Image analysis streaming error: {e}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        finally:
-            stop_event.set()
+        async with lock:
+            try:
+                async for token in engine.stream_generate(
+                    prompt=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    images=images,
+                    stop_event=stop_event
+                ):
+                    if await request.is_disconnected():
+                        stop_event.set()
+                        break
+                    data = json.dumps({"token": token})
+                    yield f"data: {data}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                logger.error(f"Image analysis streaming error: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            finally:
+                stop_event.set()
 
     return app

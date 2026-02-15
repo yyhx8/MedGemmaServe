@@ -120,6 +120,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Number of uvicorn workers (default: 1)",
     )
+    parser.add_argument(
+        "--max-user-streams",
+        type=int,
+        default=1,
+        help="Maximum simultaneous generation streams per user IP (default: 1)",
+    )
+    parser.add_argument(
+        "--rate-limit",
+        type=str,
+        default="20/minute",
+        help="Rate limit per user IP (e.g., '10/minute', '100/day') (default: 20/minute)",
+    )
 
     return parser
 
@@ -239,6 +251,8 @@ def main():
         host=args.host,
         port=args.port,
         model_key=args.model,
+        max_user_streams=args.max_user_streams,
+        rate_limit=args.rate_limit,
     )
 
     # Startup event: load model

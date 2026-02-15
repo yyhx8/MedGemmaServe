@@ -79,45 +79,6 @@ class BaseEngine(ABC):
             chunks.append(chunk)
         return "".join(chunks)
 
-    def format_chat_prompt(
-        self,
-        messages: Union[str, List[Dict[str, Any]]],
-        num_images: int = 0,
-    ) -> str:
-        """
-        Legacy manual formatter. 
-        DEPRECATED: Prefer using processor.apply_chat_template for Gemma 3.
-        """
-        if isinstance(messages, str):
-            # If a raw string is provided, prepend image tokens if needed
-            prefix = ("<image>" * num_images) + "\n" if num_images > 0 else ""
-            return f"{prefix}{messages}"
-
-        parts = []
-        for msg in messages:
-            role = msg.get("role")
-            content = msg.get("content", "")
-            
-            # Handle structured content (list of text/image parts)
-            if isinstance(content, list):
-                text_parts = []
-                for item in content:
-                    if item.get("type") == "text":
-                        text_parts.append(item.get("text", ""))
-                    elif item.get("type") == "image":
-                        text_parts.append("<image>")
-                content = "".join(text_parts)
-
-            if role == "system":
-                parts.append(f"<start_of_turn>system\n{content}<end_of_turn>")
-            elif role == "user":
-                parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
-            elif role == "assistant" or role == "model":
-                parts.append(f"<start_of_turn>model\n{content}<end_of_turn>")
-
-        parts.append("<start_of_turn>model\n")
-        return "\n".join(parts)
-
 
 class SGLangEngine(BaseEngine):
     """SGLang implementation (Linux + Ampere+ GPUs for high performance)."""
@@ -125,12 +86,14 @@ class SGLangEngine(BaseEngine):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._engine = None
+        self._processor = None
 
     async def load(self) -> None:
         try:
             import sglang
+            from transformers import AutoProcessor
         except ImportError:
-            raise ImportError("sglang not installed. This engine requires Linux.")
+            raise ImportError("sglang or transformers not installed. This engine requires Linux.")
 
         logger.info(f"Loading model with SGLang: {self.model_id}")
         start = time.monotonic()
@@ -140,16 +103,24 @@ class SGLangEngine(BaseEngine):
             import os
             os.environ["HF_TOKEN"] = self.hf_token
 
+        # Load Processor for chat template
+        try:
+            self._processor = AutoProcessor.from_pretrained(
+                self.model_id, token=self.hf_token, trust_remote_code=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to load processor for SGLang: {e}")
+            raise
+
         # Initialize SGLang Engine
-        # SGLang's Engine API mimics vLLM somewhat but is optimized for structured gen
-        # We use the lower-level Engine or Runtime depending on version.
-        # Assuming v0.1+ pattern:
+        # We explicitly set dtype="bfloat16" for Ampere+ compatibility and stability
         self._engine = sglang.Engine(
             model_path=self.model_id,
             max_model_len=self.max_model_len,
             mem_fraction_static=self.gpu_memory_utilization,
             trust_remote_code=True,
-            tp_size=1,  # Tensor parallelism (default 1 for simplicity)
+            tp_size=1,
+            dtype="bfloat16",
         )
 
         self._load_time = time.monotonic() - start
@@ -167,11 +138,18 @@ class SGLangEngine(BaseEngine):
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
 
-        # SGLang formatting
+        # SGLang formatting using official chat template
         final_prompt = prompt
         if isinstance(prompt, list):
-             # SGLang needs the text with <image> tokens
-             final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
+             try:
+                 final_prompt = self._processor.apply_chat_template(
+                     prompt,
+                     add_generation_prompt=True,
+                     tokenize=False
+                 )
+             except Exception as e:
+                 logger.error(f"SGLang apply_chat_template failed: {e}")
+                 raise RuntimeError(f"Failed to format prompt with chat template: {e}")
 
         inputs = {"text": final_prompt}
         if images and self.supports_images:
@@ -300,31 +278,31 @@ class TransformersEngine(BaseEngine):
         # Prepare inputs
         inputs = None
         
-        # Multimodal input handling
-        if self.supports_images and self._processor:
-            if isinstance(prompt, list):
-                formatted_messages = []
-                image_idx = 0
+        # Format messages for the official chat template
+        if isinstance(prompt, list):
+            formatted_messages = []
+            image_idx = 0
+            
+            for msg in prompt:
+                role = msg.get("role")
+                content = msg.get("content", "")
+                msg_content = []
                 
-                for msg in prompt:
-                    role = msg.get("role")
-                    content = msg.get("content", "")
-                    msg_content = []
-                    
-                    if isinstance(content, str):
-                        msg_content.append({"type": "text", "text": content})
-                    elif isinstance(content, list):
-                        for item in content:
-                            if item.get("type") == "text":
-                                msg_content.append({"type": "text", "text": item.get("text", "")})
-                            elif item.get("type") == "image" and images and image_idx < len(images):
-                                msg_content.append({"type": "image", "image": images[image_idx]})
-                                image_idx += 1
-                    
-                    formatted_messages.append({"role": role, "content": msg_content})
+                if isinstance(content, str):
+                    msg_content.append({"type": "text", "text": content})
+                elif isinstance(content, list):
+                    for item in content:
+                        if item.get("type") == "text":
+                            msg_content.append({"type": "text", "text": item.get("text", "")})
+                        elif item.get("type") == "image" and images and image_idx < len(images):
+                            msg_content.append({"type": "image", "image": images[image_idx]})
+                            image_idx += 1
+                
+                formatted_messages.append({"role": role, "content": msg_content})
 
-                try:
-                    # Apply chat template with vision support
+            try:
+                # Apply official chat template
+                if self.supports_images and self._processor:
                     inputs = self._processor.apply_chat_template(
                         formatted_messages,
                         add_generation_prompt=True,
@@ -333,36 +311,30 @@ class TransformersEngine(BaseEngine):
                         return_tensors="pt"
                     ).to(self._model.device)
                     
-                    # Ensure pixel_values are present and correctly typed
+                    # Ensure pixel_values are correctly attached and typed
                     if "pixel_values" not in inputs and images:
                          pixel_values = self._processor(images=images, return_tensors="pt")["pixel_values"]
                          inputs["pixel_values"] = pixel_values.to(self._model.device)
                     
                     if "pixel_values" in inputs:
                          inputs["pixel_values"] = inputs["pixel_values"].to(self._model.dtype)
-                except Exception as e:
-                    logger.warning(f"apply_chat_template failed: {e}. Falling back to manual formatting.")
-                    inputs = None
-
-            if inputs is None:
-                # Fallback to manual formatting
-                final_prompt = self.format_chat_prompt(prompt, num_images=len(images) if images else 0)
-                inputs = self._processor(
-                    text=[final_prompt],
-                    images=images,
-                    return_tensors="pt",
-                    padding=True
-                ).to(self._model.device)
+                elif self._tokenizer:
+                    # Text-only path
+                    final_prompt = self._tokenizer.apply_chat_template(
+                        formatted_messages,
+                        add_generation_prompt=True,
+                        tokenize=False
+                    )
+                    inputs = self._tokenizer(final_prompt, return_tensors="pt").to(self._model.device)
+            except Exception as e:
+                logger.error(f"Transformers apply_chat_template failed: {e}")
+                raise RuntimeError(f"Failed to format prompt with chat template: {e}")
         else:
-            # Text-only or no processor available
-            final_prompt = prompt
-            if isinstance(prompt, list):
-                final_prompt = self.format_chat_prompt(prompt, num_images=0)
-            
+            # Raw string prompt (rarely used via API but supported for internal tests)
             if self._tokenizer:
-                inputs = self._tokenizer(final_prompt, return_tensors="pt").to(self._model.device)
+                inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
             elif self._processor:
-                inputs = self._processor(text=[final_prompt], return_tensors="pt").to(self._model.device)
+                inputs = self._processor(text=[prompt], return_tensors="pt").to(self._model.device)
 
         streamer = TextIteratorStreamer(
             self._processor.tokenizer if self._processor else self._tokenizer,
@@ -407,9 +379,6 @@ class TransformersEngine(BaseEngine):
                 stop_event.set()
             
             # Non-blocking wait for the thread to finish
-            # We don't use thread.join() here because it blocks the main event loop
-            # and prevents other requests (like health checks) from being processed
-            # while waiting for the GPU to release.
             max_wait = 5.0  # seconds
             wait_start = time.monotonic()
             while thread.is_alive() and (time.monotonic() - wait_start < max_wait):
