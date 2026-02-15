@@ -1,6 +1,8 @@
 # 🧬 MedServer
 
-**One-command MedGemma clinical AI server.** Auto-installs everything, downloads the model, and serves a premium clinical web UI over your local network.
+**An Edge-Optimized, Human-Centered Interface for MedGemma in Clinical Settings.**
+
+MedServer is a one-command platform that auto-installs, downloads, and serves MedGemma models with a premium clinical web UI designed for high-stakes medical reasoning and multimodal analysis.
 
 ```bash
 medserver -m 4 -p 7070 -ip 192.168.1.50
@@ -14,8 +16,10 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 
 - **🚀 One-command Setup**: Automated installer for Linux, macOS, and Windows.
 - **🧠 Clinical Reasoning**: Native support for MedGemma "Thinking Process" traces with collapsible UI.
-- **🖼️ Multimodal Mastery**: Analysis of CT, MRI, and X-ray images with an integrated clinical lightbox (zoom/pan support).
+- **🖼️ Multimodal Mastery**: Analysis of CT, MRI, and X-ray images with an integrated clinical lightbox.
 - **💎 Premium Clinical UI**: Professional dark-mode interface designed for clinical environments.
+- **🛠️ Message Management**: Interactive controls to Copy, Edit, or Delete messages for clinical workflow flexibility.
+- **🎨 Refined Typography**: Optimized markdown rendering with clear spacing and hierarchical clarity.
 - **📂 Session Persistence**: Automatic local history management with persistent chat sessions.
 - **📱 Mobile Optimized**: Responsive design with touch-friendly lightbox and pinch-to-zoom support.
 - **⚙️ Dual-Engine Architecture**: Automatically selects the fastest inference engine (SGLang or Transformers).
