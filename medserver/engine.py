@@ -388,6 +388,57 @@ class TransformersEngine(BaseEngine):
                 logger.warning(f"Generation thread did not terminate within {max_wait}s")
 
 
+class HybridEngine(BaseEngine):
+    """
+    Engine that attempts to use SGLang for high performance, but automatically
+    falls back to Transformers if SGLang fails to load.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._engine: Optional[BaseEngine] = None
+        self._kwargs = kwargs
+
+    async def load(self) -> None:
+        use_sglang = False
+        
+        # Initial check for SGLang compatibility
+        if platform.system() == "Linux":
+            try:
+                import sglang
+                if torch.cuda.is_available():
+                    major, _ = torch.cuda.get_device_capability()
+                    if major >= 8:
+                        use_sglang = True
+            except ImportError:
+                pass
+
+        if use_sglang:
+            try:
+                logger.info("Attempting to load high-performance SGLang engine...")
+                self._engine = SGLangEngine(**self._kwargs)
+                await self._engine.load()
+                self._loaded = True
+                self._load_time = self._engine.load_time
+                return
+            except Exception as e:
+                logger.warning(f"SGLang load failed, falling back to Transformers: {e}")
+                self._engine = None
+
+        # Fallback to Transformers
+        logger.info("Loading universal Transformers engine...")
+        self._engine = TransformersEngine(**self._kwargs)
+        await self._engine.load()
+        self._loaded = True
+        self._load_time = self._engine.load_time
+
+    async def stream_generate(self, *args, **kwargs) -> AsyncIterator[str]:
+        if not self._engine:
+            raise RuntimeError("Engine not loaded.")
+        async for chunk in self._engine.stream_generate(*args, **kwargs):
+            yield chunk
+
+
 def get_gpu_info() -> dict:
     """Get GPU information for health checks."""
     info = {
@@ -417,49 +468,12 @@ def MedGemmaEngine(
     gpu_memory_utilization: float = 0.90,
     hf_token: Optional[str] = None,
 ) -> BaseEngine:
-    """Factory: Returns SGLangEngine (Linux high-perf) or TransformersEngine (Fallback)."""
-    
-    use_sglang = False
-    reason = "Unknown"
-
-    # 1. Check OS
-    is_linux = platform.system() == "Linux"
-    if not is_linux:
-        reason = "OS is not Linux (Windows detected)"
-    
-    # 2. Check SGLang installation & GPU Capability
-    if is_linux:
-        try:
-            import sglang
-            # Check Compute Capability >= 8.0 (Ampere+)
-            if torch.cuda.is_available():
-                major, minor = torch.cuda.get_device_capability()
-                if major >= 8:
-                    use_sglang = True
-                else:
-                    reason = f"GPU Compute Capability {major}.{minor} < 8.0 (SGLang requires Ampere+)"
-            else:
-                reason = "No CUDA GPU detected"
-        except ImportError:
-            reason = "sglang not installed"
-
-    if use_sglang:
-        logger.info(f"Selecting SGLang Engine (Linux + CC >= 8.0 detected)")
-        return SGLangEngine(
-            model_id=model_id,
-            supports_images=supports_images,
-            quantize=quantize,
-            max_model_len=max_model_len,
-            gpu_memory_utilization=gpu_memory_utilization,
-            hf_token=hf_token,
-        )
-    else:
-        logger.info(f"Selecting Transformers Engine ({reason})")
-        return TransformersEngine(
-            model_id=model_id,
-            supports_images=supports_images,
-            quantize=quantize,
-            max_model_len=max_model_len,
-            gpu_memory_utilization=gpu_memory_utilization,
-            hf_token=hf_token,
-        )
+    """Factory: Returns a HybridEngine with automatic fallback capability."""
+    return HybridEngine(
+        model_id=model_id,
+        supports_images=supports_images,
+        quantize=quantize,
+        max_model_len=max_model_len,
+        gpu_memory_utilization=gpu_memory_utilization,
+        hf_token=hf_token,
+    )

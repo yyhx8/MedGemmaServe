@@ -106,14 +106,16 @@ medserver -m 4 --hf-token hf_xxxxxxxxxxxxxxxxxxxxx
 
 ## 🚀 Dual-Engine Architecture
 
-MedServer automatically selects the most efficient inference engine based on your hardware:
+MedServer features a hybrid architecture that automatically selects the most efficient inference engine, with **automatic fallback** for maximum reliability:
 
 1.  **SGLang Engine** (High Performance):
     - **Trigger:** Linux + NVIDIA Ampere GPU (or newer, CC >= 8.0) + `sglang` installed.
     - **Benefits:** Up to 5x faster throughput, advanced memory management (RadixAttention), and optimized streaming.
 2.  **Transformers Engine** (Universal Compatibility):
-    - **Trigger:** Windows, older GPUs (e.g., T4/RTX 20-series), or if `sglang` is missing.
+    - **Trigger:** Windows, older GPUs, or if SGLang fails to load.
     - **Benefits:** Runs everywhere PyTorch runs. Uses `bitsandbytes` for 4-bit quantization.
+
+> 🛡️ **Automatic Fallback:** If the high-performance SGLang engine fails to initialize (e.g., due to specific driver incompatibilities), MedServer will automatically fall back to the universal Transformers engine to ensure the service remains available.
 
 ---
 
