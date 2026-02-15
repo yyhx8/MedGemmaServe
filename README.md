@@ -19,6 +19,7 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 - **📂 Session Persistence**: Automatic local history management with persistent chat sessions.
 - **📱 Mobile Optimized**: Responsive design with touch-friendly lightbox and pinch-to-zoom support.
 - **⚙️ Dual-Engine Architecture**: Automatically selects the fastest inference engine (SGLang or Transformers).
+- **🛡️ Robust Security**: Built-in rate limiting and concurrency controls to prevent server overload.
 - **📊 Live System Status**: Integrated hardware widget showing GPU info and server health.
 
 ---
@@ -74,6 +75,8 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 | `-q`, `--quantize` | Enable 4-bit quantization (reduces VRAM ~50%) | off |
 | `-v`, `--version` | Show program's version number and exit | — |
 | `--workers` | Number of server workers (uvicorn) | `1` |
+| `--max-user-streams` | Max concurrent streams per user IP | `1` |
+| `--rate-limit` | API rate limit (e.g., '10/minute') | `20/minute` |
 | `--hf-token` | HuggingFace API token | `$HF_TOKEN` env var |
 | `--max-model-len` | Max context length in tokens | `8192` |
 | `--gpu-memory-utilization` | GPU memory fraction to use | `0.90` |
@@ -136,6 +139,16 @@ MedServer automatically selects the most efficient inference engine based on you
 | H100 | 80 GB | All models |
 
 > 💡 **Tip:** Use `-q` for 4-bit quantization to run larger models on less VRAM.
+
+---
+
+## 🛡️ Robustness & Security
+
+MedServer includes built-in protection against overload and abuse:
+
+- **Rate Limiting:** Prevents API spam by limiting requests per IP address (default: 20/minute). Configurable via `--rate-limit`.
+- **Concurrency Control:** Limits the number of simultaneous active generation streams per user to prevent GPU OOM errors (default: 1). Configurable via `--max-user-streams`.
+- **Graceful Degradation:** Returns HTTP 429 (Too Many Requests) when limits are exceeded, ensuring the server remains responsive for other users.
 
 ---
 
