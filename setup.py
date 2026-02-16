@@ -19,7 +19,7 @@ setup(
     install_requires=[
         "fastapi>=0.115.0",
         "uvicorn[standard]>=0.32.0",
-        "sglang[all]>=0.1.0; platform_system=='Linux'",
+        "sglang>=0.1.0; platform_system=='Linux'",
         "transformers>=4.48.0",
         "accelerate>=1.0.0",
         "bitsandbytes>=0.46.1",

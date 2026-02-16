@@ -92,6 +92,20 @@ class SGLangEngine(BaseEngine):
         try:
             import sglang
             from transformers import AutoProcessor
+
+            # Bypass SGLang's CuDNN version check for PyTorch 2.9.1+ compatibility
+            # This is required because pinning a newer CuDNN in setup.py conflicts with Torch's strict dependencies
+            import os
+            os.environ["SGLANG_DISABLE_CUDNN_CHECK"] = "1"
+
+            # Ensure ninja is in PATH (required for flashinfer JIT)
+            try:
+                import ninja
+                if hasattr(ninja, "BIN_DIR"):
+                    os.environ["PATH"] = ninja.BIN_DIR + os.pathsep + os.environ.get("PATH", "")
+            except ImportError:
+                pass
+
         except ImportError:
             raise ImportError("sglang or transformers not installed. This engine requires Linux.")
 
@@ -99,8 +113,9 @@ class SGLangEngine(BaseEngine):
         start = time.monotonic()
 
         # Set env var for HF token if needed
+        import os
+        import sys
         if self.hf_token:
-            import os
             os.environ["HF_TOKEN"] = self.hf_token
 
         # Load Processor for chat template
@@ -114,6 +129,7 @@ class SGLangEngine(BaseEngine):
 
         # Initialize SGLang Engine
         # We explicitly set dtype="bfloat16" for Ampere+ compatibility and stability
+        # Enable multimodal if the model supports it
         self._engine = sglang.Engine(
             model_path=self.model_id,
             context_length=self.max_model_len,
@@ -121,6 +137,7 @@ class SGLangEngine(BaseEngine):
             trust_remote_code=True,
             tp_size=1,
             dtype="bfloat16",
+            enable_multimodal=self.supports_images,
         )
 
         self._load_time = time.monotonic() - start
@@ -138,22 +155,35 @@ class SGLangEngine(BaseEngine):
         if not self._loaded:
             raise RuntimeError("Engine not loaded.")
 
-        # SGLang formatting using official chat template
+        # SGLang formatting
+        # For multimodal, SGLang typically expects specific placeholders in the text
+        # and images passed via image_data.
         final_prompt = prompt
         if isinstance(prompt, list):
              try:
+                 # Generate the raw text prompt using the official template
                  final_prompt = self._processor.apply_chat_template(
                      prompt,
                      add_generation_prompt=True,
                      tokenize=False
                  )
+                 
+                 # IMPORTANT: SGLang requires explicit <image> placeholders to map image_data.
+                 # If the template produced empty strings or other placeholders for images,
+                 # we need to ensure they are converted to what SGLang expects.
+                 # For MedGemma/Gemma-2-VL, we ensure there is an <image> tag for each image.
+                 if images and self.supports_images:
+                     # count existing <image> tags
+                     tag_count = final_prompt.count("<image>")
+                     if tag_count < len(images):
+                         # If tags are missing (common with some transformers templates), 
+                         # prepend them to the prompt.
+                         missing = len(images) - tag_count
+                         final_prompt = ("<image>" * missing) + final_prompt
+                         
              except Exception as e:
-                 logger.error(f"SGLang apply_chat_template failed: {e}")
-                 raise RuntimeError(f"Failed to format prompt with chat template: {e}")
-
-        inputs = {"text": final_prompt}
-        if images and self.supports_images:
-             inputs["image_data"] = images
+                 logger.error(f"SGLang prompt preparation failed: {e}")
+                 raise RuntimeError(f"Failed to format prompt for SGLang: {e}")
 
         sampling_params = {
             "max_new_tokens": max_tokens,
@@ -161,14 +191,17 @@ class SGLangEngine(BaseEngine):
             "stop": ["<end_of_turn>", "<eos>", "<|endoftext|>"],
         }
 
+        # Call engine.generate with explicit arguments
+        # SGLang srt Engine.generate(prompt, sampling_params, image_data, ...)
         generator = self._engine.generate(
-            inputs,
-            sampling_params,
+            prompt=final_prompt,
+            sampling_params=sampling_params,
+            image_data=images if (images and self.supports_images) else None,
             stream=True
         )
 
         last_len = 0
-        async for output in generator:
+        for output in generator:
             if stop_event and stop_event.is_set():
                 break
             

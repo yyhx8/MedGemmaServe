@@ -137,7 +137,7 @@ if "%MODEL_CHOICE%"=="1" (
 )
 
 echo   Downloading %MODEL_ID%...
-huggingface-cli download %MODEL_ID%
+hf download %MODEL_ID%
 if %ERRORLEVEL% neq 0 (
     echo   [!] Download failed. It will download on first run.
 )

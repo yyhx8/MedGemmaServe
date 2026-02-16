@@ -118,8 +118,8 @@ configure_hf_token() {
         return
     fi
 
-    if command -v huggingface-cli &>/dev/null; then
-        HF_WHOAMI=$(huggingface-cli whoami 2>/dev/null || echo "")
+    if command -v hf &>/dev/null; then
+        HF_WHOAMI=$(hf whoami 2>/dev/null || echo "")
         if [ -n "$HF_WHOAMI" ] && [ "$HF_WHOAMI" != "Not logged in" ]; then
             log "Already logged in to HuggingFace as: ${HF_WHOAMI}"
             return
@@ -140,9 +140,9 @@ configure_hf_token() {
         echo "export HF_TOKEN=\"${HF_INPUT}\"" >> "${VENV_DIR}/bin/activate"
         log "Token saved to virtualenv activation script"
 
-        # Also run huggingface-cli login
-        if command -v huggingface-cli &>/dev/null; then
-            echo "$HF_INPUT" | huggingface-cli login --token "$HF_INPUT" 2>/dev/null || true
+        # Also run hf login
+        if command -v hf &>/dev/null; then
+            echo "$HF_INPUT" | hf login --token "$HF_INPUT" 2>/dev/null || true
             log "Logged in to HuggingFace CLI"
         fi
     else
@@ -182,12 +182,12 @@ predownload_model() {
     esac
 
     info "Downloading ${MODEL_ID}... (this may take a while)"
-    if command -v huggingface-cli &>/dev/null; then
-        huggingface-cli download "$MODEL_ID" || {
+    if command -v hf &>/dev/null; then
+        hf download "$MODEL_ID" || {
             warn "Download failed. You can retry later or it will download when you run medserver."
         }
     else
-        warn "huggingface-cli not found. Model will download on first run."
+        warn "hf not found. Model will download on first run."
     fi
 }
 
