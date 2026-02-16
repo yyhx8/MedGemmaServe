@@ -114,24 +114,14 @@ class SGLangEngine(BaseEngine):
 
         # Initialize SGLang Engine
         # We explicitly set dtype="bfloat16" for Ampere+ compatibility and stability
-        # Handle version differences in SGLang arguments (max_model_len vs context_length)
-        engine_kwargs = {
-            "model_path": self.model_id,
-            "mem_fraction_static": self.gpu_memory_utilization,
-            "trust_remote_code": True,
-            "tp_size": 1,
-            "dtype": "bfloat16",
-        }
-        
-        # Try context_length (newer) then max_model_len (older)
-        try:
-            self._engine = sglang.Engine(context_length=self.max_model_len, **engine_kwargs)
-        except TypeError:
-            try:
-                self._engine = sglang.Engine(max_model_len=self.max_model_len, **engine_kwargs)
-            except TypeError as e:
-                logger.error(f"Failed to initialize SGLang Engine with supported arguments: {e}")
-                raise
+        self._engine = sglang.Engine(
+            model_path=self.model_id,
+            context_length=self.max_model_len,
+            mem_fraction_static=self.gpu_memory_utilization,
+            trust_remote_code=True,
+            tp_size=1,
+            dtype="bfloat16",
+        )
 
         self._load_time = time.monotonic() - start
         self._loaded = True
