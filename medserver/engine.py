@@ -114,14 +114,24 @@ class SGLangEngine(BaseEngine):
 
         # Initialize SGLang Engine
         # We explicitly set dtype="bfloat16" for Ampere+ compatibility and stability
-        self._engine = sglang.Engine(
-            model_path=self.model_id,
-            max_model_len=self.max_model_len,
-            mem_fraction_static=self.gpu_memory_utilization,
-            trust_remote_code=True,
-            tp_size=1,
-            dtype="bfloat16",
-        )
+        # Handle version differences in SGLang arguments (max_model_len vs context_length)
+        engine_kwargs = {
+            "model_path": self.model_id,
+            "mem_fraction_static": self.gpu_memory_utilization,
+            "trust_remote_code": True,
+            "tp_size": 1,
+            "dtype": "bfloat16",
+        }
+        
+        # Try context_length (newer) then max_model_len (older)
+        try:
+            self._engine = sglang.Engine(context_length=self.max_model_len, **engine_kwargs)
+        except TypeError:
+            try:
+                self._engine = sglang.Engine(max_model_len=self.max_model_len, **engine_kwargs)
+            except TypeError as e:
+                logger.error(f"Failed to initialize SGLang Engine with supported arguments: {e}")
+                raise
 
         self._load_time = time.monotonic() - start
         self._loaded = True
@@ -394,16 +404,17 @@ class HybridEngine(BaseEngine):
     falls back to Transformers if SGLang fails to load.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, force_transformers: bool = False, **kwargs):
         super().__init__(**kwargs)
         self._engine: Optional[BaseEngine] = None
+        self.force_transformers = force_transformers
         self._kwargs = kwargs
 
     async def load(self) -> None:
         use_sglang = False
         
         # Initial check for SGLang compatibility
-        if platform.system() == "Linux":
+        if not self.force_transformers and platform.system() == "Linux":
             try:
                 import sglang
                 if torch.cuda.is_available():
@@ -464,6 +475,7 @@ def MedGemmaEngine(
     model_id: str,
     supports_images: bool = False,
     quantize: bool = False,
+    force_transformers: bool = False,
     max_model_len: int = 8192,
     gpu_memory_utilization: float = 0.90,
     hf_token: Optional[str] = None,
@@ -473,6 +485,7 @@ def MedGemmaEngine(
         model_id=model_id,
         supports_images=supports_images,
         quantize=quantize,
+        force_transformers=force_transformers,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
         hf_token=hf_token,

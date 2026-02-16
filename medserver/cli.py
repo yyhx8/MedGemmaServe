@@ -90,6 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable 4-bit quantization (reduces VRAM usage ~50%%)",
     )
     parser.add_argument(
+        "--force-transformers",
+        action="store_true",
+        default=False,
+        help="Force use of Transformers engine even if SGLang is available",
+    )
+    parser.add_argument(
         "--hf-token",
         type=str,
         default=None,
@@ -241,6 +247,7 @@ def main():
         model_id=model.model_id,
         supports_images=model.supports_images,
         quantize=args.quantize,
+        force_transformers=args.force_transformers,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
         hf_token=hf_token,

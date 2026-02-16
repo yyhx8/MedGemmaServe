@@ -15,8 +15,8 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 ## ⚡ Key Features
 
 - **🚀 One-command Setup**: Automated installer for Linux, macOS, and Windows.
-- **🧠 Clinical Reasoning**: Native support for MedGemma "Thinking Process" traces with collapsible UI.
-- **🖼️ Multimodal Mastery**: Analysis of CT, MRI, and X-ray images with an integrated clinical lightbox.
+- **🧠 Clinical Reasoning**: Native support for MedGemma "Thinking Process" traces with collapsible UI, powered by a self-healing **Hybrid Engine**.
+- **🖼️ Multimodal Mastery**: Analysis of medical images (single or multiple) with an integrated clinical lightbox.
 - **💎 Premium Clinical UI**: Professional dark-mode interface designed for clinical environments.
 - **🛠️ Message Management**: Interactive controls to Copy, Edit, or Delete messages for clinical workflow flexibility.
 - **🎨 Refined Typography**: Optimized markdown rendering with clear spacing and hierarchical clarity.
@@ -77,6 +77,7 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 | `-p`, `--port` | Server port | `8000` |
 | `-ip`, `--host` | Bind address (WiFi IP or `0.0.0.0`) | `0.0.0.0` |
 | `-q`, `--quantize` | Enable 4-bit quantization (reduces VRAM ~50%) | off |
+| `--force-transformers` | Force Transformers engine (disables SGLang) | off |
 | `-v`, `--version` | Show program's version number and exit | — |
 | `--workers` | Number of server workers (uvicorn) | `1` |
 | `--max-user-streams` | Max concurrent streams per user IP | `1` |
@@ -111,6 +112,7 @@ MedServer features a hybrid architecture that automatically selects the most eff
 1.  **SGLang Engine** (High Performance):
     - **Trigger:** Linux + NVIDIA Ampere GPU (or newer, CC >= 8.0) + `sglang` installed.
     - **Benefits:** Up to 5x faster throughput, advanced memory management (RadixAttention), and optimized streaming.
+    - **Quantization Note:** SGLang currently defaults to `bfloat16` (16-bit) and ignores the `-q` flag. If you require 4-bit quantization on Linux to save VRAM, use the `--force-transformers` flag to use the Transformers backend.
 2.  **Transformers Engine** (Universal Compatibility):
     - **Trigger:** Windows, older GPUs, or if SGLang fails to load.
     - **Benefits:** Runs everywhere PyTorch runs. Uses `bitsandbytes` for 4-bit quantization.
@@ -200,16 +202,22 @@ MedGemmaServe/
 | `GET` | `/api/health` | Server status, GPU info, model status |
 | `GET` | `/api/models` | All available model variants |
 | `GET` | `/api/model-info` | Currently loaded model details |
-| `POST` | `/api/chat` | Chat completions (SSE streaming) |
-| `POST` | `/api/analyze` | Multimodal image analysis (multipart form) |
+| `POST` | `/api/chat` | Chat completions (SSE streaming, supports multiple images) |
+| `POST` | `/api/analyze` | Image analysis (multipart form: image + prompt) |
 
-### Chat API Example
+### Chat API Example (Multiple Images)
 
 ```bash
 curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{
-    "messages": [{"role": "user", "content": "Differential diagnosis for chest pain?"}],
+    "messages": [
+      {
+        "role": "user", 
+        "content": "Compare these two scans for progression.",
+        "image_data": ["data:image/jpeg;base64,...", "data:image/jpeg;base64,..."]
+      }
+    ],
     "max_tokens": 1024,
     "temperature": 0.3,
     "stream": true
