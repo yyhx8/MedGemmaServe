@@ -113,10 +113,12 @@ class SGLangEngine(BaseEngine):
         start = time.monotonic()
 
         # Set env var for HF token if needed
-        import os
-        import sys
         if self.hf_token:
             os.environ["HF_TOKEN"] = self.hf_token
+
+        # SGLang on this project is optimized for Ampere+ hardware using bfloat16.
+        # Stability on older cards (float16) is poor for Gemma models.
+        dtype = "bfloat16"
 
         # Load Processor for chat template
         try:
@@ -128,21 +130,19 @@ class SGLangEngine(BaseEngine):
             raise
 
         # Initialize SGLang Engine
-        # We explicitly set dtype="bfloat16" for Ampere+ compatibility and stability
-        # Enable multimodal if the model supports it
         self._engine = sglang.Engine(
             model_path=self.model_id,
             context_length=self.max_model_len,
             mem_fraction_static=self.gpu_memory_utilization,
             trust_remote_code=True,
             tp_size=1,
-            dtype="bfloat16",
+            dtype=dtype,
             enable_multimodal=self.supports_images,
         )
 
         self._load_time = time.monotonic() - start
         self._loaded = True
-        logger.info(f"SGLang model loaded in {self._load_time:.1f}s")
+        logger.info(f"SGLang model loaded in {self._load_time:.1f}s (dtype={dtype})")
 
     async def stream_generate(
         self,
@@ -192,24 +192,68 @@ class SGLangEngine(BaseEngine):
         }
 
         # Call engine.generate with explicit arguments
-        # SGLang srt Engine.generate(prompt, sampling_params, image_data, ...)
+        # SGLang SRT Engine.generate handles single prompts (str/dict) and batches (list)
+        # We pass a single object (dict or str) for maximum stability in single-user requests
+        if images and self.supports_images:
+            # SGLang internal logic for multimodal single requests prefers a dict
+            inputs = {
+                "text": final_prompt,
+                "image_data": images
+            }
+        else:
+            # Text-only single request
+            inputs = final_prompt
+
         generator = self._engine.generate(
-            prompt=final_prompt,
+            inputs,
             sampling_params=sampling_params,
-            image_data=images if (images and self.supports_images) else None,
             stream=True
         )
 
+        # To prevent blocking the event loop, we consume the sync generator in a thread
+        # and pass tokens back via an asyncio Queue.
+        queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        def producer():
+            try:
+                for output in generator:
+                    if stop_event and stop_event.is_set():
+                        break
+                    
+                    # SGLang returns a list for batch requests, else a dict
+                    if isinstance(output, list) and len(output) > 0:
+                        output = output[0]
+
+                    # Thread-safe put into the queue
+                    loop.call_soon_threadsafe(queue.put_nowait, output)
+            except Exception as e:
+                logger.error(f"SGLang producer thread error: {e}")
+                loop.call_soon_threadsafe(queue.put_nowait, e)
+            finally:
+                # Sentinel to indicate end of stream
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        thread = threading.Thread(target=producer, daemon=True)
+        thread.start()
+
         last_len = 0
-        for output in generator:
-            if stop_event and stop_event.is_set():
+        while True:
+            item = await queue.get()
+            if item is None:  # Check for sentinel
                 break
             
-            new_text = output["text"]
+            if isinstance(item, Exception):
+                raise item
+            
+            new_text = item.get("text", "")
             delta = new_text[last_len:]
             if delta:
                 yield delta
             last_len = len(new_text)
+            
+            # Briefly yield control to other tasks
+            await asyncio.sleep(0)
 
 
 class TransformersEngine(BaseEngine):
@@ -442,6 +486,8 @@ class HybridEngine(BaseEngine):
                 import sglang
                 if torch.cuda.is_available():
                     major, _ = torch.cuda.get_device_capability()
+                    # Only use SGLang on Ampere+ (8.0+) for stability.
+                    # Turing (7.5) and older lack the required kernel images for SGLang optimized inference with MedGemma.
                     if major >= 8:
                         use_sglang = True
             except ImportError:
