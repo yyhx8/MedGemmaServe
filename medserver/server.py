@@ -282,10 +282,13 @@ def create_app(
              )
 
         # Read and validate image
+        if image.size is not None and image.size > 20 * 1024 * 1024:
+            raise HTTPException(400, "Image too large. Max 20MB.")
+            
         contents = await image.read()
         if len(contents) == 0:
             raise HTTPException(400, "Empty image file.")
-        if len(contents) > 20 * 1024 * 1024:  # 20MB limit
+        if len(contents) > 20 * 1024 * 1024:  # 20MB limit fallback
             raise HTTPException(400, "Image too large. Max 20MB.")
 
         try:

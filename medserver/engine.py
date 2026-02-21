@@ -440,28 +440,59 @@ class TransformersEngine(BaseEngine):
             generation_kwargs["top_p"] = 0.95
             generation_kwargs["repetition_penalty"] = 1.05
         
-        # Run generation in a separate thread
-        thread = threading.Thread(target=self._model.generate, kwargs=generation_kwargs)
-        thread.start()
+        queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
 
-        # Yield tokens from streamer
+        def generate_and_catch():
+            try:
+                self._model.generate(**generation_kwargs)
+            except Exception as e:
+                logger.error(f"Transformers generate error: {e}")
+                loop.call_soon_threadsafe(queue.put_nowait, e)
+            finally:
+                if hasattr(streamer, "on_finalized_text"):
+                    streamer.on_finalized_text("", stream_end=True)
+
+        def consume_streamer():
+            try:
+                for text in streamer:
+                    if stop_event and stop_event.is_set():
+                        break
+                    loop.call_soon_threadsafe(queue.put_nowait, text)
+            except Exception as e:
+                logger.error(f"Transformers streamer error: {e}")
+                loop.call_soon_threadsafe(queue.put_nowait, e)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+        
+        gen_thread = threading.Thread(target=generate_and_catch, daemon=True)
+        gen_thread.start()
+
+        con_thread = threading.Thread(target=consume_streamer, daemon=True)
+        con_thread.start()
+
         try:
-            for text in streamer:
-                yield text
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                
+                yield item
                 if stop_event and stop_event.is_set():
                     break
-                await asyncio.sleep(0)
         finally:
             if stop_event:
                 stop_event.set()
             
-            # Non-blocking wait for the thread to finish
+            # Non-blocking wait for the threads to finish
             max_wait = 5.0  # seconds
             wait_start = time.monotonic()
-            while thread.is_alive() and (time.monotonic() - wait_start < max_wait):
+            while (gen_thread.is_alive() or con_thread.is_alive()) and (time.monotonic() - wait_start < max_wait):
                 await asyncio.sleep(0.1)
             
-            if thread.is_alive():
+            if gen_thread.is_alive():
                 logger.warning(f"Generation thread did not terminate within {max_wait}s")
 
 
