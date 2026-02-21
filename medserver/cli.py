@@ -138,6 +138,30 @@ def build_parser() -> argparse.ArgumentParser:
         default="20/minute",
         help="Rate limit per user IP (e.g., '10/minute', '100/day') (default: 20/minute)",
     )
+    parser.add_argument(
+        "--max-history-messages",
+        type=int,
+        default=100,
+        help="Maximum number of historical messages allowed in a chat payload (default: 100)",
+    )
+    parser.add_argument(
+        "--max-text-length",
+        type=int,
+        default=50000,
+        help="Maximum characters allowed in a single message or prompt (default: 50000)",
+    )
+    parser.add_argument(
+        "--max-image-count",
+        type=int,
+        default=10,
+        help="Maximum base64 images allowed per request (default: 10)",
+    )
+    parser.add_argument(
+        "--max-payload-mb",
+        type=int,
+        default=20,
+        help="Maximum size of an uploaded image payload in Megabytes (default: 20)",
+    )
 
     return parser
 
@@ -260,6 +284,10 @@ def main():
         model_key=args.model,
         max_user_streams=args.max_user_streams,
         rate_limit=args.rate_limit,
+        max_history_messages=args.max_history_messages,
+        max_text_length=args.max_text_length,
+        max_image_count=args.max_image_count,
+        max_payload_mb=args.max_payload_mb,
     )
 
     # Startup event: load model

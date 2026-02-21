@@ -49,6 +49,10 @@ def create_app(
     model_key: str = "4",
     max_user_streams: int = 1,
     rate_limit: str = "20/minute",
+    max_history_messages: int = 100,
+    max_text_length: int = 50000,
+    max_image_count: int = 10,
+    max_payload_mb: int = 20,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
 
@@ -166,6 +170,12 @@ def create_app(
                  429, 
                  f"You already have {max_user_streams} active stream(s). Please wait for them to finish."
              )
+             
+        if len(chat_data.messages) > max_history_messages:
+            raise HTTPException(400, f"Too many messages. Maximum allowed is {max_history_messages}.")
+            
+        if chat_data.system_prompt and len(chat_data.system_prompt) > max_text_length:
+            raise HTTPException(400, f"System prompt too long. Maximum allowed is {max_text_length} characters.")
 
         full_messages = []
         effective_system_prompt = chat_data.system_prompt if chat_data.system_prompt is not None else SYSTEM_PROMPT
@@ -177,6 +187,13 @@ def create_app(
         for m in chat_data.messages:
             # Create a structured message for the engine
             msg_content = m.content
+            
+            # String length validation
+            if isinstance(msg_content, str) and len(msg_content) > max_text_length:
+                raise HTTPException(400, f"Message content too long. Maximum allowed is {max_text_length} characters.")
+            
+            if m.image_data and len(m.image_data) > max_image_count:
+                raise HTTPException(400, f"Too many images in a single message. Maximum allowed is {max_image_count}.")
             
             if m.image_data and model_info.supports_images:
                 # Ensure the content has image placeholders if image_data is present
@@ -194,11 +211,23 @@ def create_app(
                 for img_b64 in m.image_data:
                     try:
                         header, encoded = img_b64.split(",", 1) if "," in img_b64 else (None, img_b64)
+                        
+                        # Crude base64 length check before decoding (Base64 is ~33% larger than raw data)
+                        max_b64_len = int(max_payload_mb * 1024 * 1024 * 1.35)
+                        if len(encoded) > max_b64_len:
+                             raise ValueError(f"Image payload too large before decoding. Max is {max_payload_mb}MB.")
+                             
                         image_bytes = base64.b64decode(encoded)
+                        
+                        # Strict size check after decoding
+                        if len(image_bytes) > max_payload_mb * 1024 * 1024:
+                             raise ValueError(f"Decoded image exceeds {max_payload_mb}MB limit.")
+                             
                         pil_image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
                         images.append(pil_image)
                     except Exception as e:
                         logger.error(f"Failed to decode image: {e}")
+                        raise HTTPException(400, f"Invalid image or image too large: {e}")
 
             full_messages.append({"role": m.role, "content": msg_content})
 
@@ -262,14 +291,25 @@ def create_app(
     ):
         """Multimodal image analysis (4B and 27B multimodal models only)."""
         if not model_info.supports_images:
-            raise HTTPException(
-                400,
-                f"Image analysis is not supported by {model_info.name}. "
-                f"Use a multimodal model (-m 4 or -m 27).",
-            )
+            raise HTTPException(400, f"Model {model_info.name} does not support images.")
+             
+        if len(prompt) > max_text_length:
+             raise HTTPException(400, f"Prompt too long. Maximum allowed is {max_text_length} characters.")
 
-        if not engine.is_loaded:
-            raise HTTPException(503, "Model is still loading. Please wait.")
+        # Read and validate image
+        if image.size is not None and image.size > max_payload_mb * 1024 * 1024:
+            raise HTTPException(400, f"Image too large. Max {max_payload_mb}MB.")
+            
+        contents = await image.read()
+        if len(contents) == 0:
+            raise HTTPException(400, "Empty image file.")
+        if len(contents) > max_payload_mb * 1024 * 1024:  # fallback check
+            raise HTTPException(400, f"Image too large. Max {max_payload_mb}MB.")
+
+        try:
+            pil_image = PILImage.open(io.BytesIO(contents)).convert("RGB")
+        except Exception:
+            raise HTTPException(400, "Invalid image format.")
 
         # Per-user lock check
         user_ip = get_remote_address(request)
@@ -280,21 +320,6 @@ def create_app(
                  429, 
                  f"You already have {max_user_streams} active stream(s). Please wait for them to finish."
              )
-
-        # Read and validate image
-        if image.size is not None and image.size > 20 * 1024 * 1024:
-            raise HTTPException(400, "Image too large. Max 20MB.")
-            
-        contents = await image.read()
-        if len(contents) == 0:
-            raise HTTPException(400, "Empty image file.")
-        if len(contents) > 20 * 1024 * 1024:  # 20MB limit fallback
-            raise HTTPException(400, "Image too large. Max 20MB.")
-
-        try:
-            pil_image = PILImage.open(io.BytesIO(contents)).convert("RGB")
-        except Exception:
-            raise HTTPException(400, "Invalid image format.")
 
         # Use structured content to ensure the engine sees the image placeholder
         user_content = [{"type": "image"}, {"type": "text", "text": prompt}]

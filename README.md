@@ -82,6 +82,10 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 | `--workers` | Number of server workers (uvicorn) | `1` |
 | `--max-user-streams` | Max concurrent streams per user IP | `1` |
 | `--rate-limit` | API rate limit (e.g., '10/minute') | `20/minute` |
+| `--max-history-messages` | Max messages allowed in chat history | `100` |
+| `--max-text-length` | Max characters allowed in text prompts | `50000` |
+| `--max-image-count` | Max images allowed per chat message | `10` |
+| `--max-payload-mb` | Max image upload size in MB | `20` |
 | `--hf-token` | HuggingFace API token | `$HF_TOKEN` env var |
 | `--max-model-len` | Max context length in tokens | `8192` |
 | `--gpu-memory-utilization` | GPU memory fraction to use | `0.90` |
