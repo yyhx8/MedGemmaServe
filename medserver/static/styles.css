@@ -589,8 +589,8 @@ textarea {
     color: var(--text-main);
     font-family: inherit;
     font-size: 1rem;
-    padding: 10px 4px 20px 4px;
-    /* Added bottom padding for the internal counter */
+    padding: 12px 8px;
+    /* Symmetrical padding for a balanced 1-line look */
     outline: none;
     resize: none;
     max-height: 200px;
@@ -808,34 +808,13 @@ textarea {
 
 /* Character Counters */
 .char-counter {
-    font-size: 0.65rem;
+    font-size: 0.7rem;
     color: var(--text-dim);
-    pointer-events: none;
-    position: absolute;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    z-index: 10;
-}
-
-.char-counter-system {
-    bottom: 6px;
-    right: 24px;
-    /* Offset left to avoid the native resize handle */
-}
-
-.char-counter-chat {
-    bottom: 6px;
-    right: 54px;
-    /* Pinned inside chat input, explicitly avoiding the overlapping send button */
+    font-family: 'JetBrains Mono', monospace;
 }
 
 .sidebar-section {
     position: relative;
-}
-
-.sidebar-section:focus-within .char-counter-system,
-.input-wrapper:focus-within .char-counter-chat {
-    opacity: 1;
 }
 
 /* Welcome Overlay */
@@ -1083,12 +1062,6 @@ textarea {
         width: 85%;
     }
 
-    /* Keep model name visible, but also show technical hardware details on mobile (User requested to mirror PC) */
-    .hw-stats {
-        display: flex !important;
-    }
-
-
     .main-header {
         padding: 0 16px;
     }
@@ -1138,8 +1111,7 @@ textarea {
 
     textarea {
         font-size: 1rem;
-        padding: 8px 0 20px 0;
-        /* Add bottom padding to protect the internal counter on mobile */
+        padding: 10px 0;
     }
 
     .btn-send {
@@ -1189,8 +1161,8 @@ textarea {
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-main);
-    padding: 10px 10px 24px 10px;
-    /* Added bottom padding so typed text avoids the counter */
+    padding: 12px;
+    /* Restored symmetrical padding */
     font-family: inherit;
     font-size: 0.8rem;
     outline: none;

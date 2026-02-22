@@ -61,10 +61,13 @@
                 </div>
 
                 <div class="sidebar-section">
-                    <div class="sidebar-label">System Prompt</div>
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div class="sidebar-label" style="margin-bottom: 0;">System Prompt</div>
+                        <div id="systemPromptCounter" class="char-counter">0 / 50000</div>
+                    </div>
                     <textarea id="systemPromptInput" class="sidebar-textarea"
                         placeholder="Default clinical prompt..."></textarea>
-                    <div id="systemPromptCounter" class="char-counter char-counter-system">0 / 50000</div>
                 </div>
 
                 <div class="sidebar-section" style="flex: 1;">
@@ -83,7 +86,7 @@
                     </div>
                     <div id="modelBadges" style="display: flex; gap: 4px; margin-bottom: 12px;"></div>
 
-                    <div class="hw-stats"
+                    <!-- <div class="hw-stats"
                         style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--text-dim);">
                         <div style="display: flex; justify-content: space-between;">
                             <span>Hardware</span>
@@ -97,7 +100,7 @@
                             <span>Host</span>
                             <span id="networkBadge" style="color: var(--text-muted);">--</span>
                         </div>
-                    </div>
+                    </div> -->
                 </div>
             </div>
 
@@ -162,11 +165,17 @@
                                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                             </svg>
                         </button>
-                        <div id="chatInputCounter" class="char-counter char-counter-chat">0 / 50000</div>
                     </div>
                 </div>
-                <div style="text-align: center; margin-top: 12px; font-size: 0.7rem; color: var(--text-dim);">
-                    Precise medical reasoning powered by MedGemma • <span id="tokenCounter"></span>
+                <!-- Information row under the input bar -->
+                <div
+                    style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 0.7rem; color: var(--text-dim); padding: 0 4px;">
+                    <div style="width: 80px; visibility: hidden;">Spacer</div>
+                    <div style="flex: 1; text-align: center;">
+                        Precise medical reasoning powered by MedGemma • <span id="tokenCounter"></span>
+                    </div>
+                    <div id="chatInputCounter" class="char-counter" style="width: 80px; text-align: right;">0 / 50000
+                    </div>
                 </div>
             </div>
         </main>
