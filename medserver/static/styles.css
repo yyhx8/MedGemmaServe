@@ -589,7 +589,8 @@ textarea {
     color: var(--text-main);
     font-family: inherit;
     font-size: 1rem;
-    padding: 10px 4px;
+    padding: 10px 4px 20px 4px;
+    /* Added bottom padding for the internal counter */
     outline: none;
     resize: none;
     max-height: 200px;
@@ -813,16 +814,19 @@ textarea {
     position: absolute;
     opacity: 0;
     transition: opacity 0.2s ease;
+    z-index: 10;
 }
 
 .char-counter-system {
-    bottom: -18px;
-    left: 4px;
+    bottom: 6px;
+    right: 8px;
+    /* Pinned inside system prompt bottom right */
 }
 
 .char-counter-chat {
-    bottom: -20px;
-    left: 12px;
+    bottom: 6px;
+    right: 54px;
+    /* Pinned inside chat input, explicitly avoiding the overlapping send button */
 }
 
 .sidebar-section {
