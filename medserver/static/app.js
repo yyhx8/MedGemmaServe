@@ -716,6 +716,12 @@
 
     // ── Chat Input ────────────────────────────────────────
     function onInputChange() {
+        // Clear any failed message UI states if user starts typing to fix them
+        const failedPairs = document.querySelectorAll('.conversation-pair.failed');
+        if (failedPairs.length > 0) {
+            failedPairs.forEach(pair => pair.remove());
+        }
+
         if (!els.chatInput || !els.sendBtn) return;
         const hasText = els.chatInput.value.trim().length > 0;
         const hasImages = state.attachedImagesData.length > 0;
@@ -864,38 +870,34 @@
                 renderRegenerateButton();
 
                 // ── Recovery for New Messages ──
-                // If this was a new message (not regeneration), remove the failed user prompt
-                // so history stays clean and user can retry.
                 if (insertIndex === -1 && state.messages.length > 0) {
                     const lastMsg = state.messages[state.messages.length - 1];
                     
-                    // Only recover if the last message in state is indeed the User message we just sent.
-                    // (It should be, since we pushed it before calling streamChat)
                     if (lastMsg.role === 'user') {
                         const failedText = getMessageText(lastMsg.content);
 
-                        // 1. Remove from state immediately
+                        // 1. Remove from persistent state immediately (so refresh is clean)
                         state.messages.pop();
                         persistMessages();
                         
-                        // 2. Remove from DOM (the last pair)
-                        // Wait a tick to ensure user sees the error? 
-                        // Actually, immediate removal + putting text back in input is better UX for "Message too long".
+                        // 2. Mark the DOM pair as failed instead of immediate removal
                         const pairs = els.chatContainer.querySelectorAll('.conversation-pair');
                         if (pairs.length > 0) {
-                            pairs[pairs.length - 1].remove();
+                            const lastPair = pairs[pairs.length - 1];
+                            lastPair.classList.add('failed');
+                            lastPair.style.opacity = '0.7'; // Visual cue
                         }
 
                         // 3. Restore input
                         if (els.chatInput) {
                             els.chatInput.value = failedText;
                             autoResizeInput();
-                            onInputChange();
+                            // Don't call onInputChange yet, as that would clear the failed message!
+                            // We want it to stay until the USER types.
+                            updateTokenCounter();
+                            updateCharCounters();
                             els.chatInput.focus();
                         }
-                        
-                        // 4. Alert the user why it failed
-                        alert(`${errorMessage}`);
                     }
                 }
                 return;
@@ -991,6 +993,36 @@
                 finalizeStreamingResponse(fullText, assistantMsgIdx, contentEl);
             } else {
                 contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
+                
+                // ── Recovery for Network Errors ──
+                if (insertIndex === -1 && state.messages.length > 0) {
+                    const lastMsg = state.messages[state.messages.length - 1];
+                    if (lastMsg.role === 'user') {
+                        const failedText = getMessageText(lastMsg.content);
+
+                        // 1. Remove from state immediately
+                        state.messages.pop();
+                        persistMessages();
+                        
+                        // 2. Mark as failed
+                        const pairs = els.chatContainer.querySelectorAll('.conversation-pair');
+                        if (pairs.length > 0) {
+                            const lastPair = pairs[pairs.length - 1];
+                            lastPair.classList.add('failed');
+                            lastPair.style.opacity = '0.7';
+                        }
+
+                        // 3. Restore input (but keep error visible until type)
+                        if (els.chatInput) {
+                            els.chatInput.value = failedText;
+                            autoResizeInput();
+                            // Don't call onInputChange yet
+                            updateTokenCounter();
+                            updateCharCounters();
+                            els.chatInput.focus();
+                        }
+                    }
+                }
             }
         } finally {
             state.isStreaming = false;
