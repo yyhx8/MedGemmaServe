@@ -144,3 +144,4 @@ class HealthResponse(BaseModel):
     host: str
     port: int
     uptime_seconds: float
+    max_text_length: int = 50000

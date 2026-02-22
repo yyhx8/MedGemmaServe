@@ -230,9 +230,9 @@
         window.addEventListener('beforeunload', () => {
             if (state.isStreaming) {
                 // Try to finalize and save whatever we have right now
-                const msgIdx = state.messages.length; // The index the next assistant msg will have
+                const lastAssistantIdx = state.messages.length - 1;
                 const contentEl = $$('.message.assistant .content-text')[$$('.message.assistant').length - 1];
-                finalizeStreamingResponse(null, msgIdx, contentEl);
+                finalizeStreamingResponse(null, lastAssistantIdx >= 0 ? lastAssistantIdx : 0, contentEl);
 
                 // Also abort the fetch to trigger server-side stop if possible
                 if (state.abortController) {
@@ -757,6 +757,7 @@
 
         contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
+        let fullText = '';
         try {
             // Determine which messages to send
             const messagesToSend = insertIndex !== -1
@@ -781,8 +782,9 @@
             });
 
             if (!res.ok) {
-                const err = await res.json().catch(() => ({ detail: 'Server error' }));
-                contentEl.innerHTML = `<span style="color:var(--status-alert)">Error: ${err.detail || 'Unknown error'}</span>`;
+                const err = await res.json().catch(() => ({ detail: 'Server communication error' }));
+                const errorMessage = err.detail || err.error || err.message || 'Unknown error';
+                contentEl.innerHTML = `<span style="color:var(--status-alert)">Error: ${errorMessage}</span>`;
                 state.isStreaming = false;
                 resetSendButton();
                 renderRegenerateButton();
@@ -791,7 +793,7 @@
 
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
-            let fullText = '';
+            fullText = '';
             let buffer = '';
             state.currentStreamText = '';
 
@@ -1160,8 +1162,12 @@
                 count = 2;
             }
         } else {
-            startIdx = index - 1;
-            count = 2;
+            // If deleting an assistant message, also remove paired user message before it
+            if (index > 0 && state.messages[index - 1] && state.messages[index - 1].role === 'user') {
+                startIdx = index - 1;
+                count = 2;
+            }
+            // If assistant is at index 0 with no user before, just delete it alone
         }
 
         state.messages.splice(startIdx, count);
@@ -1489,7 +1495,8 @@
             const trimmed = line.trim();
             if (!trimmed) return '';
             const isBlock = blocks.some(tag => trimmed.startsWith(`<${tag}`));
-            return isBlock ? trimmed : `<p>${trimmed}</p>`;
+            const isPlaceholder = /^<p>__(?:THOUGHT|CB)_\d+__<\/p>$/.test(`<p>${trimmed}</p>`) || /^__(?:THOUGHT|CB)_\d+__$/.test(trimmed);
+            return (isBlock || isPlaceholder) ? trimmed : `<p>${trimmed}</p>`;
         }).join('\n');
 
         // Restore Protected Code Blocks

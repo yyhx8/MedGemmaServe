@@ -69,7 +69,12 @@ def create_app(
         description="Self-hosted MedGemma clinical AI server",
     )
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please wait a moment before trying again."},
+        )
 
     # Per-user concurrency locks
     user_locks = {}
@@ -127,6 +132,7 @@ def create_app(
             host=host,
             port=port,
             uptime_seconds=round(time.time() - start_time, 1),
+            max_text_length=max_text_length,
         )
 
     @app.get("/api/models")
