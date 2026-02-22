@@ -85,6 +85,16 @@ def create_app(
     def get_user_lock(ip: str) -> asyncio.Semaphore:
         return asyncio.Semaphore(max_user_streams)
 
+    async def acquire_user_slot(lock: asyncio.Semaphore) -> None:
+        """Acquire a per-user stream slot without queueing; raise 429 if full."""
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=0.001)
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                429,
+                f"You already have {max_user_streams} active stream(s). Please wait for them to finish.",
+            )
+
     # Global Error Handling
     @app.exception_handler(RuntimeError)
     async def cuda_error_handler(request: Request, exc: RuntimeError):
@@ -178,12 +188,7 @@ def create_app(
         # Per-user lock check
         user_ip = get_remote_address(request)
         lock = get_user_lock(user_ip)
-        
-        if lock._value == 0:
-             raise HTTPException(
-                 429, 
-                 f"You already have {max_user_streams} active stream(s). Please wait for them to finish."
-             )
+        await acquire_user_slot(lock)
              
         if len(chat_data.messages) > max_history_messages:
             raise HTTPException(400, f"Too many messages. Maximum allowed is {max_history_messages}.")
@@ -278,37 +283,39 @@ def create_app(
                 },
             )
         else:
-            async with lock:
+            try:
                 result = await engine.generate(
                     prompt=full_messages,
                     max_tokens=chat_data.max_tokens,
                     temperature=chat_data.temperature,
                     images=images if images else None,
                 )
+            finally:
+                lock.release()
             return {"response": result}
 
     async def _stream_chat(request: Request, messages: list, max_tokens: int, temperature: float, images: Optional[list], stop_event: threading.Event, lock: asyncio.Semaphore):
         """SSE stream generator for chat responses."""
-        async with lock:
-            try:
-                async for token in engine.stream_generate(
-                    prompt=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    images=images,
-                    stop_event=stop_event
-                ):
-                    if await request.is_disconnected():
-                        stop_event.set()
-                        break
-                    data = json.dumps({"token": token})
-                    yield f"data: {data}\n\n"
-                yield "data: [DONE]\n\n"
-            except Exception as e:
-                logger.error(f"Streaming error: {e}")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            finally:
-                stop_event.set()
+        try:
+            async for token in engine.stream_generate(
+                prompt=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                images=images,
+                stop_event=stop_event
+            ):
+                if await request.is_disconnected():
+                    stop_event.set()
+                    break
+                data = json.dumps({"token": token})
+                yield f"data: {data}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            stop_event.set()
+            lock.release()
 
     @app.post("/api/analyze")
     @limiter.limit(rate_limit)
@@ -344,12 +351,7 @@ def create_app(
         # Per-user lock check
         user_ip = get_remote_address(request)
         lock = get_user_lock(user_ip)
-        
-        if lock._value == 0:
-             raise HTTPException(
-                 429, 
-                 f"You already have {max_user_streams} active stream(s). Please wait for them to finish."
-             )
+        await acquire_user_slot(lock)
 
         # Use structured content to ensure the engine sees the image placeholder
         user_content = [{"type": "image"}, {"type": "text", "text": prompt}]
@@ -379,25 +381,25 @@ def create_app(
         lock: asyncio.Semaphore,
     ):
         """SSE stream generator for image analysis."""
-        async with lock:
-            try:
-                async for token in engine.stream_generate(
-                    prompt=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    images=images,
-                    stop_event=stop_event
-                ):
-                    if await request.is_disconnected():
-                        stop_event.set()
-                        break
-                    data = json.dumps({"token": token})
-                    yield f"data: {data}\n\n"
-                yield "data: [DONE]\n\n"
-            except Exception as e:
-                logger.error(f"Image analysis streaming error: {e}")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            finally:
-                stop_event.set()
+        try:
+            async for token in engine.stream_generate(
+                prompt=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                images=images,
+                stop_event=stop_event
+            ):
+                if await request.is_disconnected():
+                    stop_event.set()
+                    break
+                data = json.dumps({"token": token})
+                yield f"data: {data}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"Image analysis streaming error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            stop_event.set()
+            lock.release()
 
     return app

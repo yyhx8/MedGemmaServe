@@ -207,6 +207,7 @@
             systemPromptCounter: $('#systemPromptCounter'),
             chatInputCounter: $('#chatInputCounter'),
             jumpToBottomBtn: $('#jumpToBottomBtn'),
+            inputArea: $('.input-area'),
         };
     }
 
@@ -240,6 +241,16 @@
             toast.classList.add('fade-out');
             toast.addEventListener('animationend', () => toast.remove(), { once: true });
         }, duration);
+
+        // Safety: remove even if animations are disabled.
+        window.setTimeout(() => {
+            if (toast.parentNode) toast.remove();
+        }, duration + 600);
+    }
+
+    function updateToastOffset() {
+        const inputAreaHeight = els.inputArea ? els.inputArea.offsetHeight : 0;
+        document.documentElement.style.setProperty('--toast-offset', `${Math.min(inputAreaHeight, 120)}px`);
     }
 
     // ── Initialization ────────────────────────────────────
@@ -257,6 +268,8 @@
         bindEvents();
         loadChatHistory();
         startHealthPolling();
+        updateToastOffset();
+        window.addEventListener('resize', updateToastOffset);
 
         // Handle page reload/close during streaming
         window.addEventListener('beforeunload', () => {
@@ -779,6 +792,7 @@
         if (!els.chatInput) return;
         els.chatInput.style.height = 'auto';
         els.chatInput.style.height = Math.min(els.chatInput.scrollHeight, 150) + 'px';
+        updateToastOffset();
     }
 
     function updateTokenCounter() {
@@ -1167,6 +1181,7 @@
 
         if (state.attachedImagesData.length === 0) {
             els.imagePreviewContainer.classList.add('hidden');
+            updateToastOffset();
             return;
         }
 
@@ -1190,6 +1205,8 @@
             wrapper.appendChild(removeBtn);
             els.imagePreviewContainer.appendChild(wrapper);
         });
+
+        updateToastOffset();
     }
 
     window.removeImage = function (index) {
