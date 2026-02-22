@@ -890,7 +890,10 @@
         const msgEl = addMessage('assistant', '', null, true, assistantMsgIdx);
         const contentEl = msgEl.querySelector('.message-content .content-text');
 
-        const recoverFromSendFailure = () => {
+        const recoverFromSendFailure = (reason = '') => {
+            const fallbackNotice = 'Unable to send right now. Your prompt was restored.';
+            const notice = reason ? `${fallbackNotice} (${reason})` : fallbackNotice;
+
             if (insertIndex === -1) {
                 const lastMsg = state.messages[state.messages.length - 1];
                 const failedText = (lastMsg && lastMsg.role === 'user')
@@ -912,6 +915,7 @@
                     onInputChange();
                     els.chatInput.focus();
                 }
+                showToast(notice, 'warning');
                 return;
             }
 
@@ -919,11 +923,13 @@
             if (state.activeChatId) {
                 switchToChat(state.activeChatId);
             }
+            showToast(reason || 'Unable to regenerate right now.', 'warning');
         };
 
         contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
         let fullText = '';
+        let receivedToken = false;
         try {
             // Determine which messages to send
             const messagesToSend = insertIndex !== -1
@@ -973,44 +979,52 @@
 
                     if (payload === '[DONE]') continue;
 
+                    let data;
                     try {
-                        const data = JSON.parse(payload);
-                        if (data.error) {
-                            throw new Error(data.error || 'Streaming error');
-                        }
-                        if (data.token) {
-                            fullText += data.token;
-                            state.currentStreamText = fullText;
-
-                            // Proactive scroll check before DOM update
-                            const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
-
-                            contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx, state.isStreaming);
-
-                            // Incrementally save every ~80 tokens
-                            if (fullText.length % 80 === 0) {
-                                if (insertIndex !== -1) {
-                                    state.messages[assistantMsgIdx] = { role: 'assistant', content: fullText };
-                                } else {
-                                    const lastMsg = state.messages[state.messages.length - 1];
-                                    if (lastMsg && lastMsg.role === 'assistant') {
-                                        lastMsg.content = fullText;
-                                    } else {
-                                        state.messages.push({ role: 'assistant', content: fullText });
-                                    }
-                                }
-                                ChatStore.update(state.activeChatId, state.messages);
-                            }
-
-                            // Sticky scroll
-                            if (isAtBottom && !state.manualScroll) {
-                                els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
-                            }
-                        }
+                        data = JSON.parse(payload);
                     } catch (parseErr) {
-                        // Ignore malformed SSE JSON fragments, but propagate real stream errors.
-                        if (!(parseErr instanceof SyntaxError)) {
-                            throw parseErr;
+                        // Ignore malformed/incomplete SSE JSON chunks.
+                        if (parseErr instanceof SyntaxError) continue;
+                        throw parseErr;
+                    }
+
+                    if (data.error) {
+                        throw new Error(data.error || 'Streaming error');
+                    }
+
+                    if (data.token) {
+                        fullText += data.token;
+                        state.currentStreamText = fullText;
+                        receivedToken = true;
+
+                        // Proactive scroll check before DOM update
+                        const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
+
+                        try {
+                            contentEl.innerHTML = renderMarkdown(fullText, assistantMsgIdx, state.isStreaming);
+                        } catch {
+                            // Rendering should not abort generation; keep plain text visible.
+                            contentEl.textContent = fullText;
+                        }
+
+                        // Incrementally save every ~80 tokens
+                        if (fullText.length % 80 === 0) {
+                            if (insertIndex !== -1) {
+                                state.messages[assistantMsgIdx] = { role: 'assistant', content: fullText };
+                            } else {
+                                const lastMsg = state.messages[state.messages.length - 1];
+                                if (lastMsg && lastMsg.role === 'assistant') {
+                                    lastMsg.content = fullText;
+                                } else {
+                                    state.messages.push({ role: 'assistant', content: fullText });
+                                }
+                            }
+                            ChatStore.update(state.activeChatId, state.messages);
+                        }
+
+                        // Sticky scroll
+                        if (isAtBottom && !state.manualScroll) {
+                            els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
                         }
                     }
                 }
@@ -1041,10 +1055,12 @@
             if (err.name === 'AbortError') {
                 finalizeStreamingResponse(fullText, assistantMsgIdx, contentEl);
             } else {
-                if (fullText.trim().length > 0) {
+                const reason = err && err.message ? err.message : 'Request failed';
+                if (receivedToken || fullText.trim().length > 0) {
                     finalizeStreamingResponse(fullText, assistantMsgIdx, contentEl);
+                    showToast(`Response interrupted: ${reason}`, 'warning');
                 } else {
-                    recoverFromSendFailure();
+                    recoverFromSendFailure(reason);
                 }
             }
         } finally {
