@@ -204,6 +204,8 @@
             sendBtn: $('#sendBtn'),
             tokenCounter: $('#tokenCounter'),
             systemPromptInput: $('#systemPromptInput'),
+            systemPromptCounter: $('#systemPromptCounter'),
+            chatInputCounter: $('#chatInputCounter'),
             jumpToBottomBtn: $('#jumpToBottomBtn'),
         };
     }
@@ -216,6 +218,7 @@
             els.systemPromptInput.value = ChatStore.getSystemPrompt();
             els.systemPromptInput.addEventListener('input', () => {
                 ChatStore.setSystemPrompt(els.systemPromptInput.value);
+                updateCharCounters();
             });
         }
 
@@ -472,7 +475,7 @@
         const isSameChat = (state.activeChatId === chatId);
         state.activeChatId = chatId;
         state.messages = [...chat.messages];
-        
+
         if (!isSameChat) {
             state.expandedThoughts.clear();
         }
@@ -558,9 +561,11 @@
 
             state.serverReady = data.status === 'ready';
             state.modelInfo = data;
+            state.maxTextLength = data.max_text_length || 50000;
             healthFailCount = 0;
 
             updateStatusUI(data);
+            updateCharCounters();
             hideLoadingScreen();
 
         } catch (err) {
@@ -654,6 +659,7 @@
             els.sendBtn.disabled = (!hasText && !hasImages);
         }
         updateTokenCounter();
+        updateCharCounters();
     }
 
     function onInputKeydown(e) {
@@ -674,6 +680,16 @@
         const text = els.chatInput.value;
         const tokens = Math.ceil(text.length / 4);
         els.tokenCounter.textContent = tokens > 0 ? `~${tokens} tokens` : '';
+    }
+
+    function updateCharCounters() {
+        const maxLen = state.maxTextLength || 50000;
+        if (els.chatInput && els.chatInputCounter) {
+            els.chatInputCounter.textContent = `${els.chatInput.value.length} / ${maxLen}`;
+        }
+        if (els.systemPromptInput && els.systemPromptCounter) {
+            els.systemPromptCounter.textContent = `${els.systemPromptInput.value.length} / ${maxLen}`;
+        }
     }
 
     // ── Sending Messages ──────────────────────────────────
@@ -743,8 +759,8 @@
 
         try {
             // Determine which messages to send
-            const messagesToSend = insertIndex !== -1 
-                ? state.messages.slice(0, insertIndex) 
+            const messagesToSend = insertIndex !== -1
+                ? state.messages.slice(0, insertIndex)
                 : state.messages;
 
             const res = await fetch('/api/chat', {
@@ -917,7 +933,7 @@
             const assistantContents = document.querySelectorAll('.message.assistant .content-text');
             if (assistantContents.length > 0) {
                 const lastContentEl = assistantContents[assistantContents.length - 1];
-                const msgIdx = state.messages.length; 
+                const msgIdx = state.messages.length;
                 let text = state.currentStreamText;
                 // Close thinking tags if they are open so renderMarkdown treats them as finished
                 if (text.includes('<unused94>') && !text.includes('<unused95>')) {
@@ -1105,7 +1121,7 @@
                     // Find if there is an assistant message in the same pair box
                     const pairDiv = msgEl.closest('.conversation-pair');
                     const assistantMsgEl = pairDiv ? pairDiv.querySelector('.message.assistant') : null;
-                    
+
                     let assistantIdx = -1;
                     if (state.messages[index + 1] && state.messages[index + 1].role === 'assistant') {
                         assistantIdx = index + 1;
@@ -1134,11 +1150,11 @@
 
     function deleteMessage(index) {
         if (state.isStreaming) return;
-        
+
         const scrollPos = els.chatContainer.scrollTop;
         let startIdx = index;
         let count = 1;
-        
+
         if (state.messages[index].role === 'user') {
             if (state.messages[index + 1] && state.messages[index + 1].role === 'assistant') {
                 count = 2;
@@ -1241,7 +1257,7 @@
         // Handle Pairing
         let pairDiv;
         const allPairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
-        
+
         if (role === 'user') {
             pairDiv = document.createElement('div');
             pairDiv.className = 'conversation-pair';
@@ -1255,7 +1271,7 @@
         } else {
             // Assistant: search for the latest pair that has a user message but no assistant message
             pairDiv = allPairs.reverse().find(p => p.querySelector('.message.user') && !p.querySelector('.message.assistant'));
-            
+
             if (!pairDiv) {
                 pairDiv = document.createElement('div');
                 pairDiv.className = 'conversation-pair';
@@ -1326,7 +1342,7 @@
             const contentEl = msgDiv.querySelector('.content-text');
             // Prefer state.messages for clean text, fallback to DOM if state is out of sync or streaming
             const textToCopy = (state.messages[index] ? getMessageText(state.messages[index].content) : '') || contentEl.innerText.replace('(stopped)', '').trim();
-            
+
             navigator.clipboard.writeText(textToCopy);
             const btn = msgDiv.querySelector('.copy-btn');
             const oldHtml = btn.innerHTML;
@@ -1371,7 +1387,7 @@
 
         const thoughts = [];
         let processedText = text;
-        
+
         if (!isInner) {
             processedText = text.replace(/<unused94>([\s\S]*?)(?:<unused95>|$)/g, (match, thought) => {
                 const isClosed = match.includes('<unused95>');
@@ -1486,7 +1502,7 @@
             thoughts.forEach((thought, i) => {
                 const thoughtKey = `${msgIdx}-${i}`;
                 const isManuallyExpanded = state.expandedThoughts.has(thoughtKey);
-                
+
                 // It only glows if the thought is NOT closed AND we are currently streaming
                 const isProcessing = !thought.isClosed && isStreaming;
 
@@ -1494,7 +1510,7 @@
                 // 1. It is closed (finished) AND not manually expanded
                 // 2. We are NO LONGER streaming AND not manually expanded
                 let isCollapsed = (thought.isClosed || !isStreaming) && !isManuallyExpanded;
-                
+
                 // Exception: If it's still processing but the user manually collapsed it
                 if (isProcessing && state.expandedThoughts.has(thoughtKey + '-collapsed')) {
                     isCollapsed = true;
