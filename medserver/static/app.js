@@ -1302,24 +1302,21 @@
                 }
 
                 if (msg.role === 'user') {
-                    // 1. Truncate context: everything after this user prompt is now invalid
-                    let truncated = state.messages.slice(0, index + 1);
+                    const assistantIdx = index + 1;
+                    const hasPairedAssistant = state.messages[assistantIdx] && state.messages[assistantIdx].role === 'assistant';
+                    const hasFollowingMessages = assistantIdx < state.messages.length;
 
-                    // 2. Sanitize the preceding history to remove any old errors/orphans
-                    // We sanitize everything *before* the current message
-                    const preceding = sanitizeHistory(truncated.slice(0, index));
-                    // And append the current (edited) message
-                    preceding.push(truncated[index]);
-                    
-                    state.messages = preceding;
-
+                    // Preserve newer messages; only regenerate this specific turn.
                     persistMessages();
-
-                    // 3. Clear the DOM and re-render to reflect clean history and remove error flags
                     switchToChat(state.activeChatId);
 
-                    // 4. Trigger new generation for the fresh slot
-                    await streamChat();
+                    // Avoid overwriting a later user turn when history is malformed.
+                    if (!hasPairedAssistant && hasFollowingMessages) {
+                        showToast('Cannot regenerate this turn because it has no paired assistant response.', 'warning');
+                        return;
+                    }
+
+                    await regenerateResponse(index);
                 } else {
                     // If editing an assistant reply, just save and re-render that message
                     persistMessages();
@@ -1368,43 +1365,48 @@
         }
     }
 
-    async function regenerateResponse() {
+    async function regenerateResponse(targetUserIdx = null) {
         if (state.isStreaming || state.messages.length === 0) return;
 
-        // Find last user message
-        let lastUserIdx = -1;
-        for (let i = state.messages.length - 1; i >= 0; i--) {
-            if (state.messages[i].role === 'user') {
-                lastUserIdx = i;
-                break;
+        let userIdx = targetUserIdx;
+        if (userIdx === null || userIdx === undefined) {
+            // Default behavior: regenerate last user turn.
+            userIdx = -1;
+            for (let i = state.messages.length - 1; i >= 0; i--) {
+                if (state.messages[i].role === 'user') {
+                    userIdx = i;
+                    break;
+                }
             }
         }
 
-        if (lastUserIdx === -1) return;
+        if (userIdx === -1 || !state.messages[userIdx] || state.messages[userIdx].role !== 'user') return;
 
-        const assistantIdx = lastUserIdx + 1;
+        const assistantIdx = userIdx + 1;
         const isAssistantExists = state.messages[assistantIdx] && state.messages[assistantIdx].role === 'assistant';
+        const hasFollowingMessages = assistantIdx < state.messages.length;
 
-        // Find the pair box for this user message
+        if (!isAssistantExists && hasFollowingMessages) {
+            showToast('Cannot regenerate this turn because it has no paired assistant response.', 'warning');
+            return;
+        }
+
+        // Find the pair box for this user message.
         const allPairs = Array.from(els.chatContainer.querySelectorAll('.conversation-pair'));
         const targetPair = allPairs.find(p => {
             const userMsg = p.querySelector('.message.user');
-            return userMsg && parseInt(userMsg.dataset.index) === lastUserIdx;
+            return userMsg && parseInt(userMsg.dataset.index, 10) === userIdx;
         });
 
-        if (targetPair) {
+        if (targetPair && isAssistantExists) {
             const oldAssistantMsg = targetPair.querySelector('.message.assistant');
             if (oldAssistantMsg) {
                 oldAssistantMsg.remove();
             }
         }
 
-        // Trigger generation at the assistant index
-        if (isAssistantExists) {
-            await streamChat(assistantIdx);
-        } else {
-            await streamChat();
-        }
+        // Always stream into the target assistant slot so newer messages remain intact.
+        await streamChat(assistantIdx);
     }
 
     function renderRegenerateButton() {
@@ -1500,6 +1502,9 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     </button>
                     ${role === 'user' ? `
+                    <button class="action-btn regen-btn" title="Regenerate from here">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                    </button>
                     <button class="action-btn edit-btn" title="Edit">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     </button>
@@ -1546,6 +1551,10 @@
         });
 
         if (role === 'user') {
+            msgDiv.querySelector('.regen-btn').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await regenerateResponse(index);
+            });
             msgDiv.querySelector('.edit-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 editMessage(index);

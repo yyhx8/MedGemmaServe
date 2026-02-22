@@ -185,11 +185,6 @@ def create_app(
         if not engine.is_loaded:
             raise HTTPException(503, "Model is still loading. Please wait.")
 
-        # Per-user lock check
-        user_ip = get_remote_address(request)
-        lock = get_user_lock(user_ip)
-        await acquire_user_slot(lock)
-             
         if len(chat_data.messages) > max_history_messages:
             raise HTTPException(400, f"Too many messages. Maximum allowed is {max_history_messages}.")
             
@@ -271,17 +266,28 @@ def create_app(
             logger.warning(f"Model {model_info.name} does not support images. Ignoring attached images.")
             images = []
 
+        # Acquire per-user slot only after payload validation/preprocessing succeeds.
+        # This avoids leaking a slot when validation raises before streaming starts.
+        user_ip = get_remote_address(request)
+        lock = get_user_lock(user_ip)
+        await acquire_user_slot(lock)
+
         if chat_data.stream:
             stop_event = threading.Event()
-            return StreamingResponse(
-                _stream_chat(request, full_messages, chat_data.max_tokens, chat_data.temperature, images if images else None, stop_event, lock),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                },
-            )
+            try:
+                return StreamingResponse(
+                    _stream_chat(request, full_messages, chat_data.max_tokens, chat_data.temperature, images if images else None, stop_event, lock),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no",
+                    },
+                )
+            except Exception:
+                # If constructing the stream response fails before generator starts.
+                lock.release()
+                raise
         else:
             try:
                 result = await engine.generate(
