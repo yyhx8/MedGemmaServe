@@ -253,9 +253,24 @@
         document.documentElement.style.setProperty('--toast-offset', `${Math.min(inputAreaHeight, 120)}px`);
     }
 
+    function syncSidebarState(isOpen) {
+        if (els.sidebar) {
+            els.sidebar.classList.toggle('open', isOpen);
+        }
+        if (els.sidebarOverlay) {
+            els.sidebarOverlay.classList.toggle('visible', isOpen);
+            els.sidebarOverlay.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+        }
+        if (els.sidebarToggle) {
+            els.sidebarToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        }
+        document.body.classList.toggle('sidebar-open', isOpen);
+    }
+
     // ── Initialization ────────────────────────────────────
     function init() {
         setupElements();
+        syncSidebarState(false);
 
         if (els.systemPromptInput) {
             els.systemPromptInput.value = ChatStore.getSystemPrompt();
@@ -269,7 +284,12 @@
         loadChatHistory();
         startHealthPolling();
         updateToastOffset();
-        window.addEventListener('resize', updateToastOffset);
+        window.addEventListener('resize', () => {
+            updateToastOffset();
+            if (window.innerWidth > 1024) {
+                closeSidebar();
+            }
+        });
 
         // Handle page reload/close during streaming
         window.addEventListener('beforeunload', () => {
@@ -303,6 +323,9 @@
         if (els.sidebarOverlay) {
             els.sidebarOverlay.addEventListener('click', closeSidebar);
         }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeSidebar();
+        });
 
         // Global click to deselect messages
         document.addEventListener('click', (e) => {
@@ -395,21 +418,13 @@
     }
 
     function toggleSidebar() {
-        if (els.sidebar) {
-            const isOpen = els.sidebar.classList.toggle('open');
-            if (els.sidebarOverlay) {
-                els.sidebarOverlay.style.display = isOpen ? 'block' : 'none';
-            }
-        }
+        if (!els.sidebar) return;
+        const isOpen = !els.sidebar.classList.contains('open');
+        syncSidebarState(isOpen);
     }
 
     function closeSidebar() {
-        if (els.sidebar) {
-            els.sidebar.classList.remove('open');
-            if (els.sidebarOverlay) {
-                els.sidebarOverlay.style.display = 'none';
-            }
-        }
+        syncSidebarState(false);
     }
 
     function updateJumpToBottomVisibility() {
