@@ -528,36 +528,55 @@
         }
     }
 
+    /**
+     * Cleans up conversation history to remove orphaned prompts or broken states.
+     * Ensures strict User -> Assistant -> User alternation.
+     * Allows the LAST message to be a User message (waiting for response).
+     */
+    function sanitizeHistory(messages) {
+        if (!messages || messages.length === 0) return [];
+        
+        let clean = [];
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
+            
+            // Skip empty assistant messages
+            if (msg.role === 'assistant') {
+                const text = getMessageText(msg.content).trim();
+                if (!text) continue;
+            }
+            
+            if (clean.length > 0) {
+                const last = clean[clean.length - 1];
+                
+                // If two user messages in a row, the previous one was orphaned/failed. Drop it.
+                if (last.role === 'user' && msg.role === 'user') {
+                    clean.pop();
+                    clean.push(msg);
+                }
+                // If two assistant messages in a row (rare), keep latest
+                else if (last.role === 'assistant' && msg.role === 'assistant') {
+                    clean.pop();
+                    clean.push(msg);
+                }
+                else {
+                    clean.push(msg);
+                }
+            } else {
+                // First message usually user, but if assistant is first, keep it if non-empty
+                clean.push(msg);
+            }
+        }
+        return clean;
+    }
+
     function persistMessages() {
         if (!state.activeChatId) return;
 
         // Cleanup: remove any messages that break the User-Assistant alternating flow
         // or that resulted in errors.
         if (!state.isStreaming) {
-            let clean = [];
-
-            // Enforce alternating roles (User -> Assistant -> User ...)
-            // Rule: If two messages of the same role follow each other, keep the latest one.
-            // This effectively removes "orphaned" user prompts that never got a valid response.
-            for (const msg of state.messages) {
-                if (clean.length > 0 && clean[clean.length - 1].role === msg.role) {
-                    if (msg.role === 'user') {
-                        // Previous user prompt was orphaned/errored, replace it with this one
-                        clean.pop();
-                        clean.push(msg);
-                    }
-                    // If it was assistant-assistant (rare), keep the latest
-                    else {
-                        clean.pop();
-                        clean.push(msg);
-                    }
-                } else {
-                    // Sequence check: Ensure first message is 'user' (optional but clean)
-                    if (clean.length === 0 && msg.role === 'assistant') continue;
-                    clean.push(msg);
-                }
-            }
-            state.messages = clean;
+            state.messages = sanitizeHistory(state.messages);
         }
 
         ChatStore.update(state.activeChatId, state.messages);
@@ -833,13 +852,52 @@
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: 'Server communication error' }));
                 const errorMessage = err.detail || err.error || err.message || 'Unknown error';
+                
+                // Show temporary error (will be removed if recovered)
                 contentEl.innerHTML = `<div class="error-badge" style="color:var(--status-alert); padding: 8px; border: 1px solid var(--accent-glow); border-radius: 8px; margin-top: 8px;">
                     <strong style="display: block; font-size: 0.8rem; margin-bottom: 4px;">Connection Failed</strong>
                     <span style="font-size: 0.85rem; opacity: 0.8;">${errorMessage}</span>
                 </div>`;
+                
                 state.isStreaming = false;
                 resetSendButton();
                 renderRegenerateButton();
+
+                // ── Recovery for New Messages ──
+                // If this was a new message (not regeneration), remove the failed user prompt
+                // so history stays clean and user can retry.
+                if (insertIndex === -1 && state.messages.length > 0) {
+                    const lastMsg = state.messages[state.messages.length - 1];
+                    
+                    // Only recover if the last message in state is indeed the User message we just sent.
+                    // (It should be, since we pushed it before calling streamChat)
+                    if (lastMsg.role === 'user') {
+                        const failedText = getMessageText(lastMsg.content);
+
+                        // 1. Remove from state immediately
+                        state.messages.pop();
+                        persistMessages();
+                        
+                        // 2. Remove from DOM (the last pair)
+                        // Wait a tick to ensure user sees the error? 
+                        // Actually, immediate removal + putting text back in input is better UX for "Message too long".
+                        const pairs = els.chatContainer.querySelectorAll('.conversation-pair');
+                        if (pairs.length > 0) {
+                            pairs[pairs.length - 1].remove();
+                        }
+
+                        // 3. Restore input
+                        if (els.chatInput) {
+                            els.chatInput.value = failedText;
+                            autoResizeInput();
+                            onInputChange();
+                            els.chatInput.focus();
+                        }
+                        
+                        // 4. Alert the user why it failed
+                        alert(`${errorMessage}`);
+                    }
+                }
                 return;
             }
 
@@ -1171,16 +1229,15 @@
 
                 if (msg.role === 'user') {
                     // 1. Truncate context: everything after this user prompt is now invalid
-                    state.messages = state.messages.slice(0, index + 1);
+                    let truncated = state.messages.slice(0, index + 1);
 
-                    // 2. Filter errored/empty messages from the preceding history as requested
-                    state.messages = state.messages.filter(m => {
-                        if (m.role === 'assistant') {
-                            const t = getMessageText(m.content).trim();
-                            return t && t.length > 0;
-                        }
-                        return true;
-                    });
+                    // 2. Sanitize the preceding history to remove any old errors/orphans
+                    // We sanitize everything *before* the current message
+                    const preceding = sanitizeHistory(truncated.slice(0, index));
+                    // And append the current (edited) message
+                    preceding.push(truncated[index]);
+                    
+                    state.messages = preceding;
 
                     persistMessages();
 

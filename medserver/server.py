@@ -51,6 +51,7 @@ def create_app(
     rate_limit: str = "20/minute",
     max_history_messages: int = 100,
     max_text_length: int = 50000,
+    max_conversation_length: int = 100000,
     max_image_count: int = 10,
     max_payload_mb: int = 20,
     show_hardware_stats: bool = False,
@@ -196,15 +197,27 @@ def create_app(
             full_messages.append({"role": "system", "content": effective_system_prompt})
         
         images = []
+        total_content_length = 0
+        
+        if effective_system_prompt:
+             total_content_length += len(effective_system_prompt)
         
         for m in chat_data.messages:
             # Create a structured message for the engine
             msg_content = m.content
             
-            # String length validation
-            if isinstance(msg_content, str) and len(msg_content) > max_text_length:
+            # Per-message string length validation (only for user messages)
+            if m.role == "user" and isinstance(msg_content, str) and len(msg_content) > max_text_length:
                 raise HTTPException(400, f"Message content too long. Maximum allowed is {max_text_length} characters.")
             
+            # Track total conversation length
+            if isinstance(msg_content, str):
+                total_content_length += len(msg_content)
+            elif isinstance(msg_content, list):
+                for item in msg_content:
+                    if item.get("type") == "text":
+                        total_content_length += len(item.get("text", ""))
+
             if m.image_data and len(m.image_data) > max_image_count:
                 raise HTTPException(400, f"Too many images in a single message. Maximum allowed is {max_image_count}.")
             
@@ -243,6 +256,10 @@ def create_app(
                         raise HTTPException(400, f"Invalid image or image too large: {e}")
 
             full_messages.append({"role": m.role, "content": msg_content})
+        
+        # Check total conversation length
+        if total_content_length > max_conversation_length:
+             raise HTTPException(400, f"Total conversation history too long ({total_content_length} chars). Limit is {max_conversation_length}.")
 
         # If model doesn't support images, ensure we don't pass any
         if not model_info.supports_images and images:

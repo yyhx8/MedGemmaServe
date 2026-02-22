@@ -148,7 +148,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-text-length",
         type=int,
         default=50000,
-        help="Maximum characters allowed in a single message or prompt (default: 50000)",
+        help="Maximum characters allowed per individual message (default: 50000)",
+    )
+    parser.add_argument(
+        "--max-conversation-length",
+        type=int,
+        default=100000,
+        help="Maximum characters allowed for the entire conversation history (default: 100000)",
     )
     parser.add_argument(
         "--max-image-count",
@@ -293,6 +299,7 @@ def main():
         rate_limit=args.rate_limit,
         max_history_messages=args.max_history_messages,
         max_text_length=args.max_text_length,
+        max_conversation_length=args.max_conversation_length,
         max_image_count=args.max_image_count,
         max_payload_mb=args.max_payload_mb,
         show_hardware_stats=args.show_hardware_stats,

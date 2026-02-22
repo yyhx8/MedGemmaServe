@@ -84,6 +84,7 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 | `--rate-limit` | API rate limit (e.g., '10/minute') | `20/minute` |
 | `--max-history-messages` | Max messages allowed in chat history | `100` |
 | `--max-text-length` | Max characters allowed per individual message | `50000` |
+| `--max-conversation-length` | Max characters allowed for the entire conversation history | `100000` |
 | `--max-image-count` | Max images allowed per chat message | `10` |
 | `--max-payload-mb` | Max image upload size in MB | `20` |
 | `--show-hardware-stats` | Expose GPU/VRAM usage to frontend | `False` |
