@@ -210,6 +210,38 @@
         };
     }
 
+    // ── Toasts ───────────────────────────────────────────
+    function getToastContainer() {
+        let container = document.getElementById('toastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toastContainer';
+            container.className = 'toast-container';
+            container.setAttribute('aria-live', 'polite');
+            container.setAttribute('role', 'status');
+            document.body.appendChild(container);
+        }
+        return container;
+    }
+
+    function showToast(message, type = 'info', duration = 3200) {
+        const container = getToastContainer();
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+
+        const maxToasts = 3;
+        while (container.children.length > maxToasts) {
+            container.removeChild(container.firstChild);
+        }
+
+        window.setTimeout(() => {
+            toast.classList.add('fade-out');
+            toast.addEventListener('animationend', () => toast.remove(), { once: true });
+        }, duration);
+    }
+
     // ── Initialization ────────────────────────────────────
     function init() {
         setupElements();
@@ -436,7 +468,7 @@
             // Click to switch
             item.querySelector('.chat-history-item-content').addEventListener('click', () => {
                 if (state.isStreaming) {
-                    alert('Please wait for the current response to finish or stop it before switching conversations.');
+                    showToast('Please wait for the current response to finish or stop it before switching conversations.', 'warning');
                     return;
                 }
                 switchToChat(chat.id);
@@ -448,7 +480,7 @@
             item.querySelector('.chat-history-delete').addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (state.isStreaming) {
-                    alert('Please wait for the current response to finish or stop it before deleting conversations.');
+                    showToast('Please wait for the current response to finish or stop it before deleting conversations.', 'warning');
                     return;
                 }
                 ChatStore.delete(chat.id);
@@ -501,7 +533,7 @@
 
     function startNewChat() {
         if (state.isStreaming) {
-            alert('Please wait for the current response to finish or stop it before starting a new conversation.');
+            showToast('Please wait for the current response to finish or stop it before starting a new conversation.', 'warning');
             return;
         }
 
@@ -1111,11 +1143,11 @@
 
     function handleImageFile(file) {
         if (!file.type.startsWith('image/')) {
-            alert('Please select an image file.');
+            showToast('Please select an image file.', 'warning');
             return;
         }
         if (file.size > 20 * 1024 * 1024) {
-            alert('Image too large. Max 20MB.');
+            showToast('Image too large. Max 20MB.', 'warning');
             return;
         }
 

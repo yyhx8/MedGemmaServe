@@ -234,7 +234,11 @@ body {
     padding: 0 24px;
     border-bottom: 1px solid var(--border);
     backdrop-filter: blur(8px);
-    z-index: 10;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding-top: env(safe-area-inset-top);
+    height: calc(var(--header-height) + env(safe-area-inset-top));
 }
 
 .status-indicator {
@@ -1292,4 +1296,88 @@ textarea {
 
 .thinking-trace.collapsed .thinking-content {
     display: none;
+}
+
+/* Toast Notifications */
+.toast-container {
+    position: fixed;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+    width: max-content;
+    max-width: 90%;
+}
+
+.toast {
+    background: #18181b; /* var(--bg-subtle) hardcoded for opacity reliability */
+    border: 1px solid var(--border-bright);
+    color: var(--text-main);
+    padding: 12px 24px;
+    border-radius: 99px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    font-size: 0.9rem;
+    font-weight: 500;
+    animation: toastSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: auto;
+    backdrop-filter: blur(12px);
+}
+
+.toast.info {
+    border-color: rgba(59, 130, 246, 0.5);
+    color: #bfdbfe;
+}
+
+.toast.warning {
+    border-color: rgba(245, 158, 11, 0.5);
+    color: #fde68a;
+}
+
+.toast.fade-out {
+    animation: toastFadeOut 0.25s ease forwards;
+}
+
+.toast.error {
+    border-color: rgba(239, 68, 68, 0.5); /* status-alert */
+    color: #fca5a5;
+}
+
+.toast.success {
+    border-color: rgba(16, 185, 129, 0.5); /* status-ready */
+    color: #6ee7b7;
+}
+
+@keyframes toastSlideUp {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes toastFadeOut {
+    to {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+}
+
+/* Pinned Sidebar Widget */
+.sidebar-pinned-bottom {
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    background: rgba(9, 9, 11, 0.5); /* slightly opaque to separate */
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
 }
