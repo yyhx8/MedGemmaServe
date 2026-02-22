@@ -1376,8 +1376,25 @@ textarea {
 .sidebar-pinned-bottom {
     padding: 16px;
     border-top: 1px solid var(--border);
-    background: rgba(9, 9, 11, 0.5); /* slightly opaque to separate */
+    background: var(--bg-base);
     position: sticky;
     bottom: 0;
     margin-top: auto;
+    min-height: 190px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+}
+
+.model-badges {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    min-height: 18px;
+    align-items: center;
+}
+
+.model-badges:empty {
+    margin-bottom: 0;
+    min-height: 0;
 }
