@@ -447,16 +447,6 @@ body {
     line-height: 1.6;
 }
 
-/* Attached Image */
-.message-image {
-    max-width: 100%;
-    max-height: 400px;
-    border-radius: var(--radius-md);
-    margin-bottom: 16px;
-    border: 1px solid var(--border);
-    display: block;
-}
-
 /* ---- Input Bar ---- */
 .input-area {
     padding: 16px 20px 32px;
@@ -764,6 +754,33 @@ textarea {
     justify-content: center;
     gap: 20px;
     transition: opacity 0.5s ease;
+}
+
+.btn-retry {
+    display: none;
+    margin-top: 12px;
+    padding: 10px 24px;
+    background: var(--accent);
+    color: var(--bg-base);
+    border: none;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-retry:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px var(--accent-glow);
+}
+
+/* Drag-and-drop highlight */
+#imageUploadArea.drag-over {
+    border-color: var(--accent) !important;
+    background: var(--accent-muted) !important;
+    pointer-events: none;
 }
 
 .spinner {
@@ -1251,7 +1268,7 @@ textarea {
 
 .thinking-header:hover {
     background: rgba(255, 255, 255, 0.05);
-    color: var(--text-muted);
+    color: var(--text-main);
 }
 
 .thinking-header::after {

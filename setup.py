@@ -25,6 +25,7 @@ setup(
         "bitsandbytes>=0.46.1",
         "huggingface-hub>=0.25.0",
         "slowapi>=0.1.9",
+        "Pillow>=10.0.0",
     ],
     entry_points={
         "console_scripts": [

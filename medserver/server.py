@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image as PILImage
 
@@ -76,13 +76,12 @@ def create_app(
             content={"detail": "Too many requests. Please wait a moment before trying again."},
         )
 
-    # Per-user concurrency locks
-    user_locks = {}
+    # Per-user concurrency locks (LRU-bounded to prevent memory leak)
+    from functools import lru_cache
 
+    @lru_cache(maxsize=1024)
     def get_user_lock(ip: str) -> asyncio.Semaphore:
-        if ip not in user_locks:
-            user_locks[ip] = asyncio.Semaphore(max_user_streams)
-        return user_locks[ip]
+        return asyncio.Semaphore(max_user_streams)
 
     # Global Error Handling
     @app.exception_handler(RuntimeError)
@@ -115,6 +114,11 @@ def create_app(
         """Serve the clinical web UI."""
         index_path = STATIC_DIR / "index.html"
         return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>"
+        return Response(content=svg, media_type="image/svg+xml")
 
     @app.get("/api/health")
     async def health_check():
@@ -171,7 +175,7 @@ def create_app(
         user_ip = get_remote_address(request)
         lock = get_user_lock(user_ip)
         
-        if lock.locked():
+        if lock._value == 0:
              raise HTTPException(
                  429, 
                  f"You already have {max_user_streams} active stream(s). Please wait for them to finish."
@@ -321,7 +325,7 @@ def create_app(
         user_ip = get_remote_address(request)
         lock = get_user_lock(user_ip)
         
-        if lock.locked():
+        if lock._value == 0:
              raise HTTPException(
                  429, 
                  f"You already have {max_user_streams} active stream(s). Please wait for them to finish."

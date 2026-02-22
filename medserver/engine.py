@@ -213,7 +213,7 @@ class SGLangEngine(BaseEngine):
         # To prevent blocking the event loop, we consume the sync generator in a thread
         # and pass tokens back via an asyncio Queue.
         queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def producer():
             try:
@@ -441,7 +441,7 @@ class TransformersEngine(BaseEngine):
             generation_kwargs["repetition_penalty"] = 1.05
         
         queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def generate_and_catch():
             try:

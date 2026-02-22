@@ -321,7 +321,9 @@
             els.chatContainer.addEventListener('drop', (e) => {
                 e.preventDefault();
                 els.imageUploadArea.classList.remove('drag-over');
-                if (e.dataTransfer.files.length) handleImageFile(e.dataTransfer.files[0]);
+                if (e.dataTransfer.files.length) {
+                    Array.from(e.dataTransfer.files).forEach(file => handleImageFile(file));
+                }
             });
         }
 
@@ -527,10 +529,39 @@
     }
 
     function persistMessages() {
-        if (state.activeChatId) {
-            ChatStore.update(state.activeChatId, state.messages);
-            renderChatHistory();
+        if (!state.activeChatId) return;
+
+        // Cleanup: remove any messages that break the User-Assistant alternating flow
+        // or that resulted in errors.
+        if (!state.isStreaming) {
+            let clean = [];
+
+            // Enforce alternating roles (User -> Assistant -> User ...)
+            // Rule: If two messages of the same role follow each other, keep the latest one.
+            // This effectively removes "orphaned" user prompts that never got a valid response.
+            for (const msg of state.messages) {
+                if (clean.length > 0 && clean[clean.length - 1].role === msg.role) {
+                    if (msg.role === 'user') {
+                        // Previous user prompt was orphaned/errored, replace it with this one
+                        clean.pop();
+                        clean.push(msg);
+                    }
+                    // If it was assistant-assistant (rare), keep the latest
+                    else {
+                        clean.pop();
+                        clean.push(msg);
+                    }
+                } else {
+                    // Sequence check: Ensure first message is 'user' (optional but clean)
+                    if (clean.length === 0 && msg.role === 'assistant') continue;
+                    clean.push(msg);
+                }
+            }
+            state.messages = clean;
         }
+
+        ChatStore.update(state.activeChatId, state.messages);
+        renderChatHistory();
     }
 
     function getRelativeTime(timestamp) {
@@ -784,7 +815,10 @@
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: 'Server communication error' }));
                 const errorMessage = err.detail || err.error || err.message || 'Unknown error';
-                contentEl.innerHTML = `<span style="color:var(--status-alert)">Error: ${errorMessage}</span>`;
+                contentEl.innerHTML = `<div class="error-badge" style="color:var(--status-alert); padding: 8px; border: 1px solid var(--accent-glow); border-radius: 8px; margin-top: 8px;">
+                    <strong style="display: block; font-size: 0.8rem; margin-bottom: 4px;">Connection Failed</strong>
+                    <span style="font-size: 0.85rem; opacity: 0.8;">${errorMessage}</span>
+                </div>`;
                 state.isStreaming = false;
                 resetSendButton();
                 renderRegenerateButton();
@@ -814,7 +848,10 @@
                     try {
                         const data = JSON.parse(payload);
                         if (data.error) {
-                            contentEl.innerHTML = `<span style="color:var(--status-alert)">Error: ${data.error}</span>`;
+                            contentEl.innerHTML = `<div class="error-badge" style="color:var(--status-alert); padding: 8px; border: 1px solid var(--accent-glow); border-radius: 8px; margin-top: 8px;">
+                                <strong style="display: block; font-size: 0.8rem; margin-bottom: 4px;">Streaming Error</strong>
+                                <span style="font-size: 0.85rem; opacity: 0.8;">${data.error}</span>
+                            </div>`;
                             state.isStreaming = false;
                             resetSendButton();
                             return;
@@ -998,10 +1035,19 @@
         state.attachedImagesData.forEach((data, index) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-item';
-            wrapper.innerHTML = `
-                <img src="${data}" onclick="window.openLightbox('${data}')" style="cursor: pointer;">
-                <button class="remove-preview-btn" onclick="window.removeImage(${index})">✕</button>
-            `;
+
+            const img = document.createElement('img');
+            img.src = data;
+            img.style.cursor = 'pointer';
+            img.addEventListener('click', () => window.openLightbox(data));
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-preview-btn';
+            removeBtn.textContent = '✕';
+            removeBtn.addEventListener('click', () => window.removeImage(index));
+
+            wrapper.appendChild(img);
+            wrapper.appendChild(removeBtn);
             els.imagePreviewContainer.appendChild(wrapper);
         });
     }
@@ -1076,7 +1122,7 @@
         const currentText = getMessageText(msg.content);
 
         contentText.innerHTML = `
-            <textarea class="edit-textarea">${escapeHtml(currentText)}</textarea>
+            <textarea class="edit-textarea"></textarea>
             <div class="edit-controls">
                 <button class="btn-small btn-cancel">Cancel</button>
                 <button class="btn-small btn-save">Save & Submit</button>
@@ -1084,6 +1130,7 @@
         `;
 
         const textarea = contentText.querySelector('.edit-textarea');
+        textarea.value = currentText; // Set via .value to avoid HTML entity double-encoding
         textarea.style.height = textarea.scrollHeight + 'px';
         textarea.focus();
 
@@ -1094,53 +1141,41 @@
 
         contentText.querySelector('.btn-save').addEventListener('click', async () => {
             const newContent = textarea.value.trim();
-            if (newContent && newContent !== currentText) {
+            if (newContent !== currentText) {
                 // Update message content in state
                 if (Array.isArray(msg.content)) {
-                    let found = false;
-                    const newContentArray = msg.content.map(item => {
-                        if (item.type === 'text') {
-                            found = true;
-                            return { ...item, text: newContent };
-                        }
-                        return item;
-                    });
-                    if (!found) {
-                        newContentArray.push({ type: 'text', text: newContent });
-                    }
-                    state.messages[index].content = newContentArray;
+                    state.messages[index].content = msg.content.map(item =>
+                        item.type === 'text' ? { ...item, text: newContent } : item
+                    );
                 } else {
                     state.messages[index].content = newContent;
                 }
 
-                persistMessages();
-
-                // Refresh modified user content
-                const text = getMessageText(state.messages[index].content);
-                contentText.innerHTML = msg.role === 'assistant' ? renderMarkdown(text, index, false) : escapeHtml(text);
-
                 if (msg.role === 'user') {
-                    // Find if there is an assistant message in the same pair box
-                    const pairDiv = msgEl.closest('.conversation-pair');
-                    const assistantMsgEl = pairDiv ? pairDiv.querySelector('.message.assistant') : null;
+                    // 1. Truncate context: everything after this user prompt is now invalid
+                    state.messages = state.messages.slice(0, index + 1);
 
-                    let assistantIdx = -1;
-                    if (state.messages[index + 1] && state.messages[index + 1].role === 'assistant') {
-                        assistantIdx = index + 1;
-                    }
+                    // 2. Filter errored/empty messages from the preceding history as requested
+                    state.messages = state.messages.filter(m => {
+                        if (m.role === 'assistant') {
+                            const t = getMessageText(m.content).trim();
+                            return t && t.length > 0;
+                        }
+                        return true;
+                    });
 
-                    if (assistantMsgEl) {
-                        assistantMsgEl.remove();
-                    }
+                    persistMessages();
 
-                    // Trigger new generation for the assistant slot
-                    if (assistantIdx !== -1) {
-                        await streamChat(assistantIdx);
-                    } else {
-                        // If there was no assistant message (e.g. last message was user), just send new
-                        await streamChat();
-                    }
+                    // 3. Clear the DOM and re-render to reflect clean history and remove error flags
+                    switchToChat(state.activeChatId);
+
+                    // 4. Trigger new generation for the fresh slot
+                    await streamChat();
                 } else {
+                    // If editing an assistant reply, just save and re-render that message
+                    persistMessages();
+                    const text = getMessageText(state.messages[index].content);
+                    contentText.innerHTML = renderMarkdown(text, index, false);
                     renderRegenerateButton();
                 }
             } else {
@@ -1233,10 +1268,6 @@
         const container = document.createElement('div');
         container.className = 'regenerate-container';
         container.id = 'regenerateContainer';
-        container.style.width = '100%';
-        container.style.display = 'flex';
-        container.style.justifyContent = 'center';
-        container.style.padding = '20px 0';
         container.innerHTML = `
             <button class="btn-regenerate">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
@@ -1246,7 +1277,6 @@
 
         els.chatContainer.appendChild(container);
         container.querySelector('.btn-regenerate').addEventListener('click', regenerateResponse);
-        scrollToBottom();
     }
 
     function removeRegenerateButton() {
@@ -1298,15 +1328,19 @@
         const avatarIcon = role === 'assistant' ? 'M' : '👤';
 
         let imagesHtml = '';
+        const imageUrlsToRender = [];
         if (imageDataUrls && Array.isArray(imageDataUrls) && imageDataUrls.length > 0) {
+            imageDataUrls.forEach((url, i) => imageUrlsToRender.push({ url, id: `msg-img-${index}-${i}` }));
+        } else if (imageDataUrls && typeof imageDataUrls === 'string') {
+            imageUrlsToRender.push({ url: imageDataUrls, id: `msg-img-${index}-0` });
+        }
+        if (imageUrlsToRender.length > 0) {
             imagesHtml = '<div class="message-images-grid">';
-            imageDataUrls.forEach(url => {
-                imagesHtml += `<img class="message-image" src="${url}" alt="Attached medical image" onclick="window.openLightbox('${url}')">`;
+            imageUrlsToRender.forEach(({ url, id }) => {
+                const escapedUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+                imagesHtml += `<img class="message-image" id="${id}" src="${escapedUrl}" alt="Attached medical image" data-lightbox-url>`;
             });
             imagesHtml += '</div>';
-        } else if (imageDataUrls && typeof imageDataUrls === 'string') {
-            // Backward compatibility for single string
-            imagesHtml = `<img class="message-image" src="${imageDataUrls}" alt="Attached medical image" onclick="window.openLightbox('${imageDataUrls}')">`;
         }
 
         msgDiv.innerHTML = `
@@ -1331,6 +1365,12 @@
         `;
 
         pairDiv.appendChild(msgDiv);
+
+        // Bind lightbox click for message images
+        imageUrlsToRender.forEach(({ url, id }) => {
+            const imgEl = msgDiv.querySelector(`#${id}`);
+            if (imgEl) imgEl.addEventListener('click', () => window.openLightbox(url));
+        });
 
         // Selection Toggle
         msgDiv.addEventListener('click', (e) => {
@@ -1367,7 +1407,7 @@
             });
         }
 
-        scrollToBottom();
+        if (animate) scrollToBottom();
         return msgDiv;
     }
 
