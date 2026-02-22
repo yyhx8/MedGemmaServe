@@ -53,6 +53,7 @@ def create_app(
     max_text_length: int = 50000,
     max_image_count: int = 10,
     max_payload_mb: int = 20,
+    show_hardware_stats: bool = False,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
 
@@ -131,8 +132,10 @@ def create_app(
             modality=model_info.modality,
             supports_images=model_info.supports_images,
             gpu_available=gpu["gpu_available"],
-            gpu_name=gpu.get("gpu_name"),
-            gpu_vram_gb=gpu.get("gpu_vram_gb"),
+            gpu_name=gpu.get("gpu_name") if show_hardware_stats else None,
+            gpu_vram_gb=gpu.get("gpu_vram_total_gb") if show_hardware_stats else None,
+            gpu_vram_total_gb=gpu.get("gpu_vram_total_gb") if show_hardware_stats else None,
+            gpu_vram_used_gb=gpu.get("gpu_vram_used_gb") if show_hardware_stats else None,
             host=host,
             port=port,
             uptime_seconds=round(time.time() - start_time, 1),

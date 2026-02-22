@@ -644,8 +644,26 @@
             }
         }
 
-        if (els.gpuName) els.gpuName.textContent = data.gpu_name || 'No GPU';
-        if (els.gpuVram) els.gpuVram.textContent = data.gpu_vram_gb ? `${data.gpu_vram_gb} GB` : '--';
+        const hwContainer = document.getElementById('hwStatsContainer');
+        if (hwContainer) {
+            if (data.gpu_name) {
+                hwContainer.classList.remove('hidden');
+                if (els.gpuName) els.gpuName.textContent = data.gpu_name;
+                
+                if (els.gpuVram) {
+                    if (data.gpu_vram_used_gb !== undefined && data.gpu_vram_total_gb !== undefined) {
+                        els.gpuVram.textContent = `${data.gpu_vram_used_gb} / ${data.gpu_vram_total_gb} GB`;
+                    } else if (data.gpu_vram_gb) {
+                        els.gpuVram.textContent = `${data.gpu_vram_gb} GB`;
+                    } else {
+                        els.gpuVram.textContent = '--';
+                    }
+                }
+            } else {
+                hwContainer.classList.add('hidden');
+            }
+        }
+
         if (els.serverUptime) els.serverUptime.textContent = formatUptime(data.uptime_seconds);
 
         const uploadBtns = $$('.upload-btn, .attach-btn');

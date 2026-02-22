@@ -141,6 +141,8 @@ class HealthResponse(BaseModel):
     gpu_available: bool
     gpu_name: Optional[str] = None
     gpu_vram_gb: Optional[float] = None
+    gpu_vram_total_gb: Optional[float] = None
+    gpu_vram_used_gb: Optional[float] = None
     host: str
     port: int
     uptime_seconds: float

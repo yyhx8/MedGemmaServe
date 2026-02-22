@@ -86,21 +86,27 @@
                     </div>
                     <div id="modelBadges" style="display: flex; gap: 4px; margin-bottom: 12px;"></div>
 
-                    <!-- <div class="hw-stats"
-                        style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--text-dim);">
-                        <div style="display: flex; justify-content: space-between;">
+                    <div id="hwStatsContainer" class="hw-stats hidden"
+                        style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--text-dim); margin-top: 12px;">
+                        <div class="sidebar-label" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="document.getElementById('hwStatsContent').classList.toggle('hidden')">
                             <span>Hardware</span>
-                            <span id="gpuName" style="color: var(--text-muted);">--</span>
+                            <span style="font-size: 0.7rem;">▼</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span>VRAM</span>
-                            <span id="gpuVram" style="color: var(--text-muted);">--</span>
+                        <div id="hwStatsContent">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>GPU</span>
+                                <span id="gpuName" style="color: var(--text-muted);">--</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Memory</span>
+                                <span id="gpuVram" style="color: var(--text-muted);">--</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Host</span>
+                                <span id="networkBadge" style="color: var(--text-muted);">--</span>
+                            </div>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span>Host</span>
-                            <span id="networkBadge" style="color: var(--text-muted);">--</span>
-                        </div>
-                    </div> -->
+                    </div>
                 </div>
             </div>
 

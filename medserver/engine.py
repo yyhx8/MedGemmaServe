@@ -564,6 +564,10 @@ def get_gpu_info() -> dict:
         info["gpu_name"] = torch.cuda.get_device_name(0)
         total_mem = torch.cuda.get_device_properties(0).total_memory
         info["gpu_vram_gb"] = round(total_mem / (1024**3), 1)
+        info["gpu_vram_total_gb"] = info["gpu_vram_gb"]
+        
+        reserved = torch.cuda.memory_reserved(0)
+        info["gpu_vram_used_gb"] = round(reserved / (1024**3), 1)
         
         cc = torch.cuda.get_device_capability(0)
         info["compute_capability"] = f"{cc[0]}.{cc[1]}"

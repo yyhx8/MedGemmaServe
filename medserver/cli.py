@@ -163,6 +163,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum size of an uploaded image payload in Megabytes (default: 20)",
     )
 
+    parser.add_argument(
+        "--show-hardware-stats",
+        action="store_true",
+        default=False,
+        help="Expose detailed hardware stats (GPU/VRAM) to the frontend (default: False)",
+    )
+
     return parser
 
 
@@ -288,6 +295,7 @@ def main():
         max_text_length=args.max_text_length,
         max_image_count=args.max_image_count,
         max_payload_mb=args.max_payload_mb,
+        show_hardware_stats=args.show_hardware_stats,
     )
 
     # Startup event: load model
