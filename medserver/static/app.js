@@ -890,6 +890,37 @@
         const msgEl = addMessage('assistant', '', null, true, assistantMsgIdx);
         const contentEl = msgEl.querySelector('.message-content .content-text');
 
+        const recoverFromSendFailure = () => {
+            if (insertIndex === -1) {
+                const lastMsg = state.messages[state.messages.length - 1];
+                const failedText = (lastMsg && lastMsg.role === 'user')
+                    ? getMessageText(lastMsg.content)
+                    : '';
+
+                if (lastMsg && lastMsg.role === 'user') {
+                    state.messages.pop();
+                    persistMessages();
+                }
+
+                if (state.activeChatId) {
+                    switchToChat(state.activeChatId);
+                }
+
+                if (els.chatInput) {
+                    els.chatInput.value = failedText;
+                    autoResizeInput();
+                    onInputChange();
+                    els.chatInput.focus();
+                }
+                return;
+            }
+
+            // Regeneration path: restore previously saved state/assistant output.
+            if (state.activeChatId) {
+                switchToChat(state.activeChatId);
+            }
+        };
+
         contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
         let fullText = '';
@@ -918,50 +949,8 @@
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: 'Server communication error' }));
-                const errorMessage = err.detail || err.error || err.message || 'Unknown error';
-                
-                // Show temporary error (will be removed if recovered)
-                contentEl.innerHTML = `<div class="error-badge" style="color:var(--status-alert); padding: 8px; border: 1px solid var(--accent-glow); border-radius: 8px; margin-top: 8px;">
-                    <strong style="display: block; font-size: 0.8rem; margin-bottom: 4px;">Connection Failed</strong>
-                    <span style="font-size: 0.85rem; opacity: 0.8;">${errorMessage}</span>
-                </div>`;
-                
-                state.isStreaming = false;
-                resetSendButton();
-                renderRegenerateButton();
-
-                // ── Recovery for New Messages ──
-                if (insertIndex === -1 && state.messages.length > 0) {
-                    const lastMsg = state.messages[state.messages.length - 1];
-                    
-                    if (lastMsg.role === 'user') {
-                        const failedText = getMessageText(lastMsg.content);
-
-                        // 1. Remove from persistent state immediately (so refresh is clean)
-                        state.messages.pop();
-                        persistMessages();
-                        
-                        // 2. Mark the DOM pair as failed instead of immediate removal
-                        const pairs = els.chatContainer.querySelectorAll('.conversation-pair');
-                        if (pairs.length > 0) {
-                            const lastPair = pairs[pairs.length - 1];
-                            lastPair.classList.add('failed');
-                            lastPair.style.opacity = '0.7'; // Visual cue
-                        }
-
-                        // 3. Restore input
-                        if (els.chatInput) {
-                            els.chatInput.value = failedText;
-                            autoResizeInput();
-                            // Don't call onInputChange yet, as that would clear the failed message!
-                            // We want it to stay until the USER types.
-                            updateTokenCounter();
-                            updateCharCounters();
-                            els.chatInput.focus();
-                        }
-                    }
-                }
-                return;
+                const errorMessage = err.detail || err.error || err.message || `Request failed (${res.status})`;
+                throw new Error(errorMessage);
             }
 
             const reader = res.body.getReader();
@@ -987,13 +976,7 @@
                     try {
                         const data = JSON.parse(payload);
                         if (data.error) {
-                            contentEl.innerHTML = `<div class="error-badge" style="color:var(--status-alert); padding: 8px; border: 1px solid var(--accent-glow); border-radius: 8px; margin-top: 8px;">
-                                <strong style="display: block; font-size: 0.8rem; margin-bottom: 4px;">Streaming Error</strong>
-                                <span style="font-size: 0.85rem; opacity: 0.8;">${data.error}</span>
-                            </div>`;
-                            state.isStreaming = false;
-                            resetSendButton();
-                            return;
+                            throw new Error(data.error || 'Streaming error');
                         }
                         if (data.token) {
                             fullText += data.token;
@@ -1024,7 +1007,12 @@
                                 els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
                             }
                         }
-                    } catch (_) { }
+                    } catch (parseErr) {
+                        // Ignore malformed SSE JSON fragments, but propagate real stream errors.
+                        if (!(parseErr instanceof SyntaxError)) {
+                            throw parseErr;
+                        }
+                    }
                 }
             }
 
@@ -1053,36 +1041,10 @@
             if (err.name === 'AbortError') {
                 finalizeStreamingResponse(fullText, assistantMsgIdx, contentEl);
             } else {
-                contentEl.innerHTML = `<span style="color:var(--status-alert)">Connection error: ${err.message}</span>`;
-                
-                // ── Recovery for Network Errors ──
-                if (insertIndex === -1 && state.messages.length > 0) {
-                    const lastMsg = state.messages[state.messages.length - 1];
-                    if (lastMsg.role === 'user') {
-                        const failedText = getMessageText(lastMsg.content);
-
-                        // 1. Remove from state immediately
-                        state.messages.pop();
-                        persistMessages();
-                        
-                        // 2. Mark as failed
-                        const pairs = els.chatContainer.querySelectorAll('.conversation-pair');
-                        if (pairs.length > 0) {
-                            const lastPair = pairs[pairs.length - 1];
-                            lastPair.classList.add('failed');
-                            lastPair.style.opacity = '0.7';
-                        }
-
-                        // 3. Restore input (but keep error visible until type)
-                        if (els.chatInput) {
-                            els.chatInput.value = failedText;
-                            autoResizeInput();
-                            // Don't call onInputChange yet
-                            updateTokenCounter();
-                            updateCharCounters();
-                            els.chatInput.focus();
-                        }
-                    }
+                if (fullText.trim().length > 0) {
+                    finalizeStreamingResponse(fullText, assistantMsgIdx, contentEl);
+                } else {
+                    recoverFromSendFailure();
                 }
             }
         } finally {
