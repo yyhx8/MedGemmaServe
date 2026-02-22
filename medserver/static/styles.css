@@ -477,6 +477,7 @@ body {
 }
 
 .input-wrapper {
+    position: relative;
     display: flex;
     align-items: flex-end;
     gap: 8px;
@@ -806,17 +807,31 @@ textarea {
 
 /* Character Counters */
 .char-counter {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     color: var(--text-dim);
-    text-align: right;
-    margin-top: 4px;
     pointer-events: none;
+    position: absolute;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.char-counter-system {
+    bottom: -18px;
+    left: 4px;
 }
 
 .char-counter-chat {
-    position: absolute;
-    bottom: -22px;
-    right: 0;
+    bottom: -20px;
+    left: 12px;
+}
+
+.sidebar-section {
+    position: relative;
+}
+
+.sidebar-section:focus-within .char-counter-system,
+.input-wrapper:focus-within .char-counter-chat {
+    opacity: 1;
 }
 
 /* Welcome Overlay */
