@@ -819,8 +819,8 @@ textarea {
 
 .char-counter-system {
     bottom: 6px;
-    right: 8px;
-    /* Pinned inside system prompt bottom right */
+    right: 24px;
+    /* Offset left to avoid the native resize handle */
 }
 
 .char-counter-chat {
@@ -1083,9 +1083,9 @@ textarea {
         width: 85%;
     }
 
-    /* Keep model name visible, hide technical hardware details on mobile */
+    /* Keep model name visible, but also show technical hardware details on mobile (User requested to mirror PC) */
     .hw-stats {
-        display: none !important;
+        display: flex !important;
     }
 
 
@@ -1138,7 +1138,8 @@ textarea {
 
     textarea {
         font-size: 1rem;
-        padding: 8px 0;
+        padding: 8px 0 20px 0;
+        /* Add bottom padding to protect the internal counter on mobile */
     }
 
     .btn-send {
@@ -1188,7 +1189,8 @@ textarea {
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-main);
-    padding: 10px;
+    padding: 10px 10px 24px 10px;
+    /* Added bottom padding so typed text avoids the counter */
     font-family: inherit;
     font-size: 0.8rem;
     outline: none;
