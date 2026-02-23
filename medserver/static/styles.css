@@ -147,7 +147,7 @@ body.sidebar-open {
 .sidebar-content {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
     -webkit-overflow-scrolling: touch;
     padding: 24px 16px;
     display: flex;
@@ -172,14 +172,26 @@ body.sidebar-open {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    flex-shrink: 0;
 }
 
-.btn-new-session {
+.btn-send.btn-new-session {
     width: 100%;
+    min-width: 100%;
     height: 38px;
     border-radius: 10px;
     font-size: 0.8rem;
     font-weight: 600;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.btn-send.btn-new-session:hover {
+    transform: none;
+    filter: brightness(1.03);
 }
 
 .sidebar-prompt-header {
@@ -201,9 +213,20 @@ body.sidebar-open {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    min-height: 120px;
+    min-height: 0;
     overflow-y: auto;
     padding-right: 4px;
+}
+
+.sidebar-history {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-history .chat-history-list {
+    flex: 1;
 }
 
 .chat-history-item {
@@ -1273,7 +1296,7 @@ textarea {
         gap: 8px;
     }
 
-    .btn-new-session {
+    .btn-send.btn-new-session {
         height: 36px;
         font-size: 0.78rem;
     }
