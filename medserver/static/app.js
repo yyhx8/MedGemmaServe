@@ -1226,16 +1226,19 @@
         els.tokenCounter.textContent = tokens > 0 ? `~${tokens} tokens` : '';
     }
 
-    function shouldAutoStopLoop(text) {
-        const sensitivity = state.loopStopSensitivity || 0;
-        if (sensitivity <= 0 || !text) return false;
+    function normalizeLoopText(text, maskNumbers = false) {
+        if (!text) return '';
+        let normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+        if (maskNumbers) {
+            // Treat changing numbers (indexes, counters, timestamps) as the same token.
+            normalized = normalized.replace(/[-+]?\d+(?:[.,:/-]\d+)*/g, '#');
+            normalized = normalized.replace(/\s+/g, ' ').trim();
+        }
+        return normalized;
+    }
 
-        const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-        if (normalized.length < 280) return false;
-
-        // Higher sensitivity => shorter segment + fewer repeats required.
-        const segmentLen = Math.max(40, 180 - (sensitivity * 12));
-        const repeatsNeeded = Math.max(2, 7 - Math.ceil(sensitivity / 2));
+    function hasRepeatingTailSegment(normalized, segmentLen, repeatsNeeded, driftWindow = 0) {
+        if (!normalized || segmentLen <= 0 || repeatsNeeded <= 0) return false;
         if (normalized.length < segmentLen * (repeatsNeeded + 1)) return false;
 
         const tail = normalized.slice(-segmentLen);
@@ -1243,12 +1246,56 @@
         let cursor = normalized.length - segmentLen;
 
         while (cursor - segmentLen >= 0 && repeats < repeatsNeeded) {
-            const prev = normalized.slice(cursor - segmentLen, cursor);
-            if (prev !== tail) break;
+            const expectedStart = cursor - segmentLen;
+
+            if (driftWindow <= 0) {
+                const prev = normalized.slice(expectedStart, cursor);
+                if (prev !== tail) break;
+                repeats += 1;
+                cursor = expectedStart;
+                continue;
+            }
+
+            // Allow slight boundary drift to handle tiny shape changes across repetitions.
+            const minStart = Math.max(0, expectedStart - driftWindow);
+            const maxStart = Math.min(expectedStart + driftWindow, cursor - segmentLen);
+            let foundStart = -1;
+
+            for (let start = maxStart; start >= minStart; start -= 1) {
+                if (normalized.slice(start, start + segmentLen) === tail) {
+                    foundStart = start;
+                    break;
+                }
+            }
+
+            if (foundStart === -1) break;
             repeats += 1;
-            cursor -= segmentLen;
+            cursor = foundStart;
         }
+
         return repeats >= repeatsNeeded;
+    }
+
+    function shouldAutoStopLoop(text) {
+        const sensitivity = state.loopStopSensitivity || 0;
+        if (sensitivity <= 0 || !text) return false;
+
+        const normalized = normalizeLoopText(text, false);
+        if (normalized.length < 280) return false;
+
+        // Higher sensitivity => shorter segment + fewer repeats required.
+        const segmentLen = Math.max(40, 180 - (sensitivity * 12));
+        const repeatsNeeded = Math.max(2, 7 - Math.ceil(sensitivity / 2));
+        if (hasRepeatingTailSegment(normalized, segmentLen, repeatsNeeded, 0)) {
+            return true;
+        }
+
+        // Fallback for loops that only change numbers (e.g., counters or line indices).
+        const maskedNumbers = normalizeLoopText(text, true);
+        if (!maskedNumbers || maskedNumbers === normalized) return false;
+
+        const driftWindow = Math.max(2, Math.min(24, Math.floor(segmentLen * 0.15)));
+        return hasRepeatingTailSegment(maskedNumbers, segmentLen, repeatsNeeded, driftWindow);
     }
 
     function updateCharCounters() {
