@@ -22,6 +22,7 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 - **🎨 Refined Typography**: Optimized markdown rendering with clear spacing and hierarchical clarity.
 - **📂 Session Persistence**: Automatic local history management with persistent chat sessions.
 - **📱 Mobile Optimized**: Responsive design with touch-friendly lightbox and pinch-to-zoom support.
+- **🛑 Frontend Loop Guard**: Detects repetitive streamed output and auto-stops generation on the client side.
 - **⚙️ Dual-Engine Architecture**: Automatically selects the fastest inference engine (SGLang or Transformers).
 - **🛡️ Robust Security**: Built-in rate limiting and concurrency controls to prevent server overload.
 - **📊 Live System Status**: Integrated hardware widget showing GPU info and server health.
@@ -163,6 +164,23 @@ MedServer includes built-in protection against overload and abuse:
 - **Rate Limiting:** Prevents API spam by limiting requests per IP address (default: 20/minute). Configurable via `--rate-limit`.
 - **Concurrency Control:** Limits the number of simultaneous active generation streams per user to prevent GPU OOM errors (default: 1). Configurable via `--max-user-streams`.
 - **Graceful Degradation:** Returns HTTP 429 (Too Many Requests) when limits are exceeded, ensuring the server remains responsive for other users.
+
+### Frontend Loop Auto-Stop
+
+To prevent runaway repetitive responses, the web UI includes a frontend-only loop detector that auto-stops generation when it detects repeated trailing text patterns.
+
+- **Default sensitivity:** `5`
+- **Range:** `0` to `10`
+- **Disable:** set sensitivity to `0`
+- **Persistence:** stored in browser local storage (`medserver_loop_stop_sensitivity`)
+
+You can tune it from browser devtools:
+
+```js
+window.setLoopStopSensitivity(7); // higher = more aggressive stop
+```
+
+This mechanism runs entirely in the frontend and does not require additional server initialization.
 
 ---
 

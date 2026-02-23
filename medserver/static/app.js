@@ -39,6 +39,14 @@
     const STORAGE_KEY = 'medserver_chats';
     const ACTIVE_CHAT_KEY = 'medserver_active_chat';
     const SYSTEM_PROMPT_KEY = 'medserver_system_prompt';
+    const LOOP_STOP_SENSITIVITY_KEY = 'medserver_loop_stop_sensitivity';
+    const DEFAULT_LOOP_STOP_SENSITIVITY = 5;
+
+    function clampInt(value, min, max, fallback) {
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(min, Math.min(max, n));
+    }
 
     /**
      * Helper to extract text from message content (which can be a string or array of objects).
@@ -159,6 +167,12 @@
         currentStreamText: '', // Track raw text for reliable finalization/tags
         currentStreamAssistantIdx: null, // Exact assistant slot being streamed
         currentStreamContentEl: null, // Exact DOM node for current streamed assistant content
+        loopStopSensitivity: clampInt(
+            safeStorage.get(LOOP_STOP_SENSITIVITY_KEY, String(DEFAULT_LOOP_STOP_SENSITIVITY)),
+            0,
+            10,
+            DEFAULT_LOOP_STOP_SENSITIVITY
+        ),
         lightboxTransform: {
             scale: 1, x: 0, y: 0,
             isDragging: false, startX: 0, startY: 0,
@@ -819,6 +833,31 @@
         els.tokenCounter.textContent = tokens > 0 ? `~${tokens} tokens` : '';
     }
 
+    function shouldAutoStopLoop(text) {
+        const sensitivity = state.loopStopSensitivity || 0;
+        if (sensitivity <= 0 || !text) return false;
+
+        const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+        if (normalized.length < 280) return false;
+
+        // Higher sensitivity => shorter segment + fewer repeats required.
+        const segmentLen = Math.max(40, 180 - (sensitivity * 12));
+        const repeatsNeeded = Math.max(2, 7 - Math.ceil(sensitivity / 2));
+        if (normalized.length < segmentLen * (repeatsNeeded + 1)) return false;
+
+        const tail = normalized.slice(-segmentLen);
+        let repeats = 0;
+        let cursor = normalized.length - segmentLen;
+
+        while (cursor - segmentLen >= 0 && repeats < repeatsNeeded) {
+            const prev = normalized.slice(cursor - segmentLen, cursor);
+            if (prev !== tail) break;
+            repeats += 1;
+            cursor -= segmentLen;
+        }
+        return repeats >= repeatsNeeded;
+    }
+
     function updateCharCounters() {
         const maxLen = state.maxTextLength || 50000;
         if (els.chatInput && els.chatInputCounter) {
@@ -1001,6 +1040,12 @@
                         fullText += data.token;
                         state.currentStreamText = fullText;
                         receivedToken = true;
+
+                        if (shouldAutoStopLoop(fullText)) {
+                            showToast(`Auto-stopped repetitive loop (sensitivity ${state.loopStopSensitivity})`, 'warning', 4200);
+                            stopGeneration();
+                            return;
+                        }
 
                         // Proactive scroll check before DOM update
                         const isAtBottom = (els.chatContainer.scrollHeight - els.chatContainer.scrollTop - els.chatContainer.clientHeight) <= 15;
@@ -1790,6 +1835,14 @@
         // If we were at the bottom before toggling, stay at the bottom.
         // But do not force a jump if the user is looking at history.
         scrollToBottom(false);
+    };
+
+    // Runtime helper for loop-stop tuning without server config.
+    window.setLoopStopSensitivity = function (value) {
+        const next = clampInt(value, 0, 10, state.loopStopSensitivity);
+        state.loopStopSensitivity = next;
+        safeStorage.set(LOOP_STOP_SENSITIVITY_KEY, String(next));
+        showToast(`Loop auto-stop sensitivity set to ${next}`, 'info');
     };
 
     function escapeHtml(text) {
