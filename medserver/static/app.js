@@ -1386,8 +1386,12 @@
     async function regenerateResponse(targetUserIdx = null) {
         if (state.isStreaming || state.messages.length === 0) return;
 
-        let userIdx = targetUserIdx;
-        if (userIdx === null || userIdx === undefined) {
+        const parsedTarget = typeof targetUserIdx === 'string'
+            ? parseInt(targetUserIdx, 10)
+            : targetUserIdx;
+        let userIdx = Number.isInteger(parsedTarget) ? parsedTarget : null;
+
+        if (userIdx === null) {
             // Default behavior: regenerate last user turn.
             userIdx = -1;
             for (let i = state.messages.length - 1; i >= 0; i--) {
@@ -1445,7 +1449,7 @@
         `;
 
         els.chatContainer.appendChild(container);
-        container.querySelector('.btn-regenerate').addEventListener('click', regenerateResponse);
+        container.querySelector('.btn-regenerate').addEventListener('click', () => regenerateResponse());
     }
 
     function removeRegenerateButton() {
