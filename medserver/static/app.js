@@ -467,9 +467,8 @@
 
         // Global click to deselect messages
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.message') && !e.target.closest('#promptActionDock')) {
+            if (!e.target.closest('.message')) {
                 $$('.message.selected').forEach(m => m.classList.remove('selected'));
-                hidePromptActionDock();
             }
         });
 
@@ -501,7 +500,9 @@
 
         // Scroll monitoring for jump button
         if (els.chatContainer) {
-            els.chatContainer.addEventListener('scroll', updateJumpToBottomVisibility);
+            els.chatContainer.addEventListener('scroll', () => {
+                updateJumpToBottomVisibility();
+            });
         }
 
         // Clear history
@@ -680,7 +681,6 @@
     function switchToChat(chatId) {
         const chat = ChatStore.get(chatId);
         if (!chat) return;
-        hidePromptActionDock();
 
         // Correctly check if we are in the same chat BEFORE updating state.activeChatId
         const isSameChat = (state.activeChatId === chatId);
@@ -713,7 +713,6 @@
             showToast('Please wait for the current response to finish or stop it before starting a new conversation.', 'warning');
             return;
         }
-        hidePromptActionDock();
 
         // Create and switch
         state.activeChatId = null;
@@ -1340,7 +1339,6 @@
 
         state.isStreaming = true;
         state.abortController = new AbortController();
-        hidePromptActionDock();
 
         els.sendBtn.innerHTML = '■';
         els.sendBtn.classList.add('stop');
@@ -1716,7 +1714,6 @@
     // ── Welcome Screen ────────────────────────────────────
     function showWelcomeScreen() {
         if (!els.chatContainer) return;
-        hidePromptActionDock();
         els.chatContainer.innerHTML = '';
 
         const welcome = document.createElement('div');
@@ -1758,50 +1755,6 @@
     function hideWelcomeScreen() {
         const ws = $('#welcomeScreen');
         if (ws) ws.style.display = 'none';
-    }
-
-    function getPromptActionDock() {
-        let dock = document.getElementById('promptActionDock');
-        if (dock) return dock;
-
-        dock = document.createElement('div');
-        dock.id = 'promptActionDock';
-        dock.className = 'prompt-action-dock hidden';
-        dock.innerHTML = `
-            <button class="dock-action-btn dock-edit-btn" type="button">Edit Prompt</button>
-            <button class="dock-action-btn dock-regen-btn" type="button">Regenerate</button>
-        `;
-
-        dock.querySelector('.dock-edit-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = Number.parseInt(dock.dataset.promptIndex || '', 10);
-            if (Number.isInteger(idx)) editMessage(idx);
-        });
-        dock.querySelector('.dock-regen-btn').addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const idx = Number.parseInt(dock.dataset.promptIndex || '', 10);
-            if (Number.isInteger(idx)) await regenerateResponse(idx);
-        });
-
-        document.body.appendChild(dock);
-        return dock;
-    }
-
-    function showPromptActionDock(promptIndex) {
-        if (!Number.isInteger(promptIndex) || promptIndex < 0) {
-            hidePromptActionDock();
-            return;
-        }
-        const dock = getPromptActionDock();
-        dock.dataset.promptIndex = String(promptIndex);
-        dock.classList.remove('hidden');
-    }
-
-    function hidePromptActionDock() {
-        const dock = document.getElementById('promptActionDock');
-        if (!dock) return;
-        dock.classList.add('hidden');
-        delete dock.dataset.promptIndex;
     }
 
     // ── Message Actions ───────────────────────────────────
@@ -1882,7 +1835,6 @@
 
     function deleteMessage(index) {
         if (state.isStreaming) return;
-        hidePromptActionDock();
 
         const scrollPos = els.chatContainer.scrollTop;
         let startIdx = index;
@@ -2118,13 +2070,6 @@
             $$('.message.selected').forEach(m => m.classList.remove('selected'));
             if (!isSelected) {
                 msgDiv.classList.add('selected');
-                if (hasPromptActions) {
-                    showPromptActionDock(resolvedPromptIndex);
-                } else {
-                    hidePromptActionDock();
-                }
-            } else {
-                hidePromptActionDock();
             }
         });
 

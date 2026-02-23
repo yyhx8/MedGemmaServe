@@ -574,6 +574,8 @@ body.sidebar-open {
     overflow-wrap: break-word;
     position: relative;
     padding: 4px 0 0 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .message-content strong,
@@ -835,25 +837,23 @@ textarea {
 }
 
 /* Message Actions */
-/* Message Actions now rely on the relative position of the primary message-content */
+/* Keep actions visible and in reach while scrolling long messages. */
 
 .message-actions {
-    position: absolute;
-    top: 12px;
-    right: 12px;
+    position: sticky;
+    top: 10px;
+    align-self: flex-end;
     display: flex;
     gap: 6px;
-    opacity: 0;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    transform: translateY(8px);
-    pointer-events: none;
-    z-index: 5;
-}
-
-.message.selected .message-actions {
     opacity: 1;
-    transform: translateY(0);
     pointer-events: all;
+    z-index: 5;
+    margin: 0 0 8px auto;
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(10, 10, 12, 0.7);
+    backdrop-filter: blur(8px);
 }
 
 .message.selected {
@@ -1394,6 +1394,23 @@ textarea {
         font-size: 0.95rem;
     }
 
+    .message-actions {
+        top: 8px;
+        gap: 4px;
+        padding: 3px;
+        margin-bottom: 6px;
+    }
+
+    .action-btn {
+        width: 30px;
+        height: 30px;
+    }
+
+    .action-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+
     .message-content h1 {
         padding-left: 0 !important;
         font-size: 1.4rem;
@@ -1707,52 +1724,6 @@ textarea {
 .toast.success {
     border-color: rgba(16, 185, 129, 0.5); /* status-ready */
     color: #6ee7b7;
-}
-
-.prompt-action-dock {
-    position: fixed;
-    right: 18px;
-    bottom: calc(20px + env(safe-area-inset-bottom) + var(--toast-offset, 0px));
-    display: flex;
-    gap: 8px;
-    padding: 8px;
-    border-radius: 12px;
-    border: 1px solid var(--border-bright);
-    background: rgba(18, 18, 20, 0.92);
-    backdrop-filter: blur(10px);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
-    z-index: 4700;
-}
-
-.dock-action-btn {
-    border: 1px solid var(--border);
-    background: var(--bg-subtle);
-    color: var(--text-regular);
-    border-radius: 10px;
-    height: 34px;
-    padding: 0 12px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.dock-action-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-@media (max-width: 480px) {
-    .prompt-action-dock {
-        right: 10px;
-        left: 10px;
-        justify-content: center;
-    }
-
-    .dock-action-btn {
-        flex: 1;
-        max-width: 180px;
-    }
 }
 
 @keyframes toastSlideUp {
