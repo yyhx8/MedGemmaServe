@@ -40,10 +40,24 @@
     const ACTIVE_CHAT_KEY = 'medserver_active_chat';
     const SYSTEM_PROMPT_KEY = 'medserver_system_prompt';
     const LOOP_STOP_SENSITIVITY_KEY = 'medserver_loop_stop_sensitivity';
+    const SAMPLING_TEMPERATURE_KEY = 'medserver_sampling_temperature';
+    const SAMPLING_TOP_P_KEY = 'medserver_sampling_top_p';
     const DEFAULT_LOOP_STOP_SENSITIVITY = 5;
+    const DEFAULT_SAMPLING_TEMPERATURE = 0.3;
+    const DEFAULT_SAMPLING_TOP_P = 0.95;
+    const DEFAULT_TEMPERATURE_MIN = 0.0;
+    const DEFAULT_TEMPERATURE_MAX = 2.0;
+    const DEFAULT_TOP_P_MIN = 0.1;
+    const DEFAULT_TOP_P_MAX = 1.0;
 
     function clampInt(value, min, max, fallback) {
         const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(min, Math.min(max, n));
+    }
+
+    function clampFloat(value, min, max, fallback) {
+        const n = Number.parseFloat(value);
         if (!Number.isFinite(n)) return fallback;
         return Math.max(min, Math.min(max, n));
     }
@@ -167,12 +181,33 @@
         currentStreamText: '', // Track raw text for reliable finalization/tags
         currentStreamAssistantIdx: null, // Exact assistant slot being streamed
         currentStreamContentEl: null, // Exact DOM node for current streamed assistant content
+        leftSidebarOpen: false,
+        rightSidebarOpen: false,
         loopStopSensitivity: clampInt(
             safeStorage.get(LOOP_STOP_SENSITIVITY_KEY, String(DEFAULT_LOOP_STOP_SENSITIVITY)),
             0,
             10,
             DEFAULT_LOOP_STOP_SENSITIVITY
         ),
+        samplingTemperature: clampFloat(
+            safeStorage.get(SAMPLING_TEMPERATURE_KEY, String(DEFAULT_SAMPLING_TEMPERATURE)),
+            DEFAULT_TEMPERATURE_MIN,
+            DEFAULT_TEMPERATURE_MAX,
+            DEFAULT_SAMPLING_TEMPERATURE
+        ),
+        samplingTopP: clampFloat(
+            safeStorage.get(SAMPLING_TOP_P_KEY, String(DEFAULT_SAMPLING_TOP_P)),
+            DEFAULT_TOP_P_MIN,
+            DEFAULT_TOP_P_MAX,
+            DEFAULT_SAMPLING_TOP_P
+        ),
+        defaultSamplingTemperature: DEFAULT_SAMPLING_TEMPERATURE,
+        defaultSamplingTopP: DEFAULT_SAMPLING_TOP_P,
+        samplingTemperatureMin: DEFAULT_TEMPERATURE_MIN,
+        samplingTemperatureMax: DEFAULT_TEMPERATURE_MAX,
+        samplingTopPMin: DEFAULT_TOP_P_MIN,
+        samplingTopPMax: DEFAULT_TOP_P_MAX,
+        allowClientSamplingConfig: true,
         lightboxTransform: {
             scale: 1, x: 0, y: 0,
             isDragging: false, startX: 0, startY: 0,
@@ -194,6 +229,8 @@
             disclaimerAccept: $('#disclaimerAccept'),
             sidebar: $('#sidebar'),
             sidebarToggle: $('#sidebarToggle'),
+            configSidebar: $('#configSidebar'),
+            configSidebarToggle: $('#configSidebarToggle'),
             sidebarOverlay: $('#sidebarOverlay'),
             statusDot: $('#statusDot'),
             statusText: $('#statusText'),
@@ -221,6 +258,12 @@
             tokenCounter: $('#tokenCounter'),
             systemPromptInput: $('#systemPromptInput'),
             systemPromptCounter: $('#systemPromptCounter'),
+            temperatureInput: $('#temperatureInput'),
+            temperatureValue: $('#temperatureValue'),
+            topPInput: $('#topPInput'),
+            topPValue: $('#topPValue'),
+            samplingSummary: $('#samplingSummary'),
+            samplingPolicyHint: $('#samplingPolicyHint'),
             chatInputCounter: $('#chatInputCounter'),
             jumpToBottomBtn: $('#jumpToBottomBtn'),
             inputArea: $('.input-area'),
@@ -269,24 +312,37 @@
         document.documentElement.style.setProperty('--toast-offset', `${Math.min(inputAreaHeight, 120)}px`);
     }
 
-    function syncSidebarState(isOpen) {
-        if (els.sidebar) {
-            els.sidebar.classList.toggle('open', isOpen);
+    function syncSidebarState(side, isOpen) {
+        const isLeft = side === 'left';
+        const sidebarEl = isLeft ? els.sidebar : els.configSidebar;
+        const toggleEl = isLeft ? els.sidebarToggle : els.configSidebarToggle;
+
+        if (isLeft) {
+            state.leftSidebarOpen = isOpen;
+        } else {
+            state.rightSidebarOpen = isOpen;
         }
+
+        if (sidebarEl) {
+            sidebarEl.classList.toggle('open', isOpen);
+        }
+        if (toggleEl) {
+            toggleEl.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        }
+
+        const anyOpen = state.leftSidebarOpen || state.rightSidebarOpen;
         if (els.sidebarOverlay) {
-            els.sidebarOverlay.classList.toggle('visible', isOpen);
-            els.sidebarOverlay.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+            els.sidebarOverlay.classList.toggle('visible', anyOpen);
+            els.sidebarOverlay.setAttribute('aria-hidden', anyOpen ? 'false' : 'true');
         }
-        if (els.sidebarToggle) {
-            els.sidebarToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-        }
-        document.body.classList.toggle('sidebar-open', isOpen);
+        document.body.classList.toggle('sidebar-open', anyOpen);
     }
 
     // ── Initialization ────────────────────────────────────
     function init() {
         setupElements();
-        syncSidebarState(false);
+        syncSidebarState('left', false);
+        syncSidebarState('right', false);
 
         if (els.systemPromptInput) {
             els.systemPromptInput.value = ChatStore.getSystemPrompt();
@@ -295,6 +351,7 @@
                 updateCharCounters();
             });
         }
+        updateSamplingControls();
 
         bindEvents();
         loadChatHistory();
@@ -331,10 +388,19 @@
             els.chatInput.addEventListener('input', autoResizeInput);
         }
         if (els.sendBtn) els.sendBtn.addEventListener('click', onSend);
+        if (els.temperatureInput) {
+            els.temperatureInput.addEventListener('input', onSamplingInput);
+        }
+        if (els.topPInput) {
+            els.topPInput.addEventListener('input', onSamplingInput);
+        }
 
         // Sidebar toggles
         if (els.sidebarToggle && els.sidebar) {
             els.sidebarToggle.addEventListener('click', toggleSidebar);
+        }
+        if (els.configSidebarToggle && els.configSidebar) {
+            els.configSidebarToggle.addEventListener('click', toggleConfigSidebar);
         }
         if (els.sidebarOverlay) {
             els.sidebarOverlay.addEventListener('click', closeSidebar);
@@ -436,11 +502,20 @@
     function toggleSidebar() {
         if (!els.sidebar) return;
         const isOpen = !els.sidebar.classList.contains('open');
-        syncSidebarState(isOpen);
+        syncSidebarState('right', false);
+        syncSidebarState('left', isOpen);
+    }
+
+    function toggleConfigSidebar() {
+        if (!els.configSidebar) return;
+        const isOpen = !els.configSidebar.classList.contains('open');
+        syncSidebarState('left', false);
+        syncSidebarState('right', isOpen);
     }
 
     function closeSidebar() {
-        syncSidebarState(false);
+        syncSidebarState('left', false);
+        syncSidebarState('right', false);
     }
 
     function updateJumpToBottomVisibility() {
@@ -671,6 +746,123 @@
         return new Date(timestamp).toLocaleDateString();
     }
 
+    function getEffectiveSamplingConfig() {
+        if (state.allowClientSamplingConfig) {
+            return {
+                temperature: state.samplingTemperature,
+                topP: state.samplingTopP,
+            };
+        }
+        return {
+            temperature: state.defaultSamplingTemperature,
+            topP: state.defaultSamplingTopP,
+        };
+    }
+
+    function applySamplingPolicyFromHealth(data) {
+        const temperatureMin = clampFloat(data.temperature_min, -100, 100, DEFAULT_TEMPERATURE_MIN);
+        const temperatureMax = clampFloat(data.temperature_max, -100, 100, DEFAULT_TEMPERATURE_MAX);
+        const topPMin = clampFloat(data.top_p_min, 0, 1, DEFAULT_TOP_P_MIN);
+        const topPMax = clampFloat(data.top_p_max, 0, 1, DEFAULT_TOP_P_MAX);
+
+        state.samplingTemperatureMin = Math.min(temperatureMin, temperatureMax);
+        state.samplingTemperatureMax = Math.max(temperatureMin, temperatureMax);
+        state.samplingTopPMin = Math.min(topPMin, topPMax);
+        state.samplingTopPMax = Math.max(topPMin, topPMax);
+
+        state.defaultSamplingTemperature = clampFloat(
+            data.default_temperature,
+            state.samplingTemperatureMin,
+            state.samplingTemperatureMax,
+            DEFAULT_SAMPLING_TEMPERATURE
+        );
+        state.defaultSamplingTopP = clampFloat(
+            data.default_top_p,
+            state.samplingTopPMin,
+            state.samplingTopPMax,
+            DEFAULT_SAMPLING_TOP_P
+        );
+        state.allowClientSamplingConfig = data.allow_client_sampling_config !== false;
+
+        if (!state.allowClientSamplingConfig) {
+            state.samplingTemperature = state.defaultSamplingTemperature;
+            state.samplingTopP = state.defaultSamplingTopP;
+        } else {
+            state.samplingTemperature = clampFloat(
+                state.samplingTemperature,
+                state.samplingTemperatureMin,
+                state.samplingTemperatureMax,
+                state.defaultSamplingTemperature
+            );
+            state.samplingTopP = clampFloat(
+                state.samplingTopP,
+                state.samplingTopPMin,
+                state.samplingTopPMax,
+                state.defaultSamplingTopP
+            );
+            safeStorage.set(SAMPLING_TEMPERATURE_KEY, String(state.samplingTemperature));
+            safeStorage.set(SAMPLING_TOP_P_KEY, String(state.samplingTopP));
+        }
+        updateSamplingControls();
+    }
+
+    function updateSamplingControls() {
+        const effective = getEffectiveSamplingConfig();
+        if (els.temperatureInput) {
+            els.temperatureInput.min = String(state.samplingTemperatureMin);
+            els.temperatureInput.max = String(state.samplingTemperatureMax);
+            els.temperatureInput.step = '0.05';
+            els.temperatureInput.value = String(state.samplingTemperature);
+            els.temperatureInput.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.topPInput) {
+            els.topPInput.min = String(state.samplingTopPMin);
+            els.topPInput.max = String(state.samplingTopPMax);
+            els.topPInput.step = '0.01';
+            els.topPInput.value = String(state.samplingTopP);
+            els.topPInput.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.temperatureValue) {
+            els.temperatureValue.textContent = effective.temperature.toFixed(2);
+        }
+        if (els.topPValue) {
+            els.topPValue.textContent = effective.topP.toFixed(2);
+        }
+        if (els.samplingSummary) {
+            const lockSuffix = state.allowClientSamplingConfig ? '' : ' (locked)';
+            els.samplingSummary.textContent = `T ${effective.temperature.toFixed(2)} • P ${effective.topP.toFixed(2)}${lockSuffix}`;
+        }
+        if (els.samplingPolicyHint) {
+            els.samplingPolicyHint.classList.toggle('hidden', state.allowClientSamplingConfig);
+        }
+    }
+
+    function onSamplingInput() {
+        if (!state.allowClientSamplingConfig) {
+            updateSamplingControls();
+            return;
+        }
+        if (els.temperatureInput) {
+            state.samplingTemperature = clampFloat(
+                els.temperatureInput.value,
+                state.samplingTemperatureMin,
+                state.samplingTemperatureMax,
+                state.defaultSamplingTemperature
+            );
+            safeStorage.set(SAMPLING_TEMPERATURE_KEY, String(state.samplingTemperature));
+        }
+        if (els.topPInput) {
+            state.samplingTopP = clampFloat(
+                els.topPInput.value,
+                state.samplingTopPMin,
+                state.samplingTopPMax,
+                state.defaultSamplingTopP
+            );
+            safeStorage.set(SAMPLING_TOP_P_KEY, String(state.samplingTopP));
+        }
+        updateSamplingControls();
+    }
+
     // ── Health Polling ────────────────────────────────────
     function startHealthPolling() {
         checkHealth();
@@ -688,6 +880,7 @@
             state.serverReady = data.status === 'ready';
             state.modelInfo = data;
             state.maxTextLength = data.max_text_length || 50000;
+            applySamplingPolicyFromHealth(data);
             healthFailCount = 0;
 
             updateStatusUI(data);
@@ -979,6 +1172,7 @@
             const messagesToSend = insertIndex !== -1
                 ? state.messages.slice(0, insertIndex)
                 : state.messages;
+            const sampling = getEffectiveSamplingConfig();
 
             const res = await fetch('/api/chat', {
                 method: 'POST',
@@ -992,7 +1186,8 @@
                     })),
                     system_prompt: ChatStore.getSystemPrompt() || undefined,
                     max_tokens: 2048,
-                    temperature: 0.3,
+                    temperature: sampling.temperature,
+                    top_p: sampling.topP,
                     stream: true,
                 }),
             });
@@ -1843,6 +2038,30 @@
         state.loopStopSensitivity = next;
         safeStorage.set(LOOP_STOP_SENSITIVITY_KEY, String(next));
         showToast(`Loop auto-stop sensitivity set to ${next}`, 'info');
+    };
+
+    // Runtime helper for sampling controls.
+    window.setSamplingConfig = function (temperature, topP) {
+        if (!state.allowClientSamplingConfig) {
+            showToast('Sampling is locked by server policy.', 'warning');
+            return;
+        }
+        state.samplingTemperature = clampFloat(
+            temperature,
+            state.samplingTemperatureMin,
+            state.samplingTemperatureMax,
+            state.samplingTemperature
+        );
+        state.samplingTopP = clampFloat(
+            topP,
+            state.samplingTopPMin,
+            state.samplingTopPMax,
+            state.samplingTopP
+        );
+        safeStorage.set(SAMPLING_TEMPERATURE_KEY, String(state.samplingTemperature));
+        safeStorage.set(SAMPLING_TOP_P_KEY, String(state.samplingTopP));
+        updateSamplingControls();
+        showToast(`Sampling updated (T=${state.samplingTemperature.toFixed(2)}, P=${state.samplingTopP.toFixed(2)})`, 'info');
     };
 
     function escapeHtml(text) {

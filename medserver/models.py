@@ -122,14 +122,16 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     system_prompt: Optional[str] = None
     max_tokens: int = 2048
-    temperature: float = 0.3
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
     stream: bool = True
 
 
 class AnalyzeRequest(BaseModel):
     prompt: str
     max_tokens: int = 2048
-    temperature: float = 0.3
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
 
 
 class HealthResponse(BaseModel):
@@ -147,3 +149,10 @@ class HealthResponse(BaseModel):
     port: int
     uptime_seconds: float
     max_text_length: int = 50000
+    default_temperature: float = 0.3
+    default_top_p: float = 0.95
+    allow_client_sampling_config: bool = True
+    temperature_min: float = 0.0
+    temperature_max: float = 2.0
+    top_p_min: float = 0.1
+    top_p_max: float = 1.0

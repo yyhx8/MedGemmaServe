@@ -55,6 +55,7 @@ class BaseEngine(ABC):
         prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
+        top_p: float = 0.95,
         images: Optional[list] = None,
         stop_event: Optional[threading.Event] = None,
     ) -> AsyncIterator[str]:
@@ -66,6 +67,7 @@ class BaseEngine(ABC):
         prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
+        top_p: float = 0.95,
         images: Optional[list] = None,
     ) -> str:
         """Generate a complete (non-streaming) response."""
@@ -74,6 +76,7 @@ class BaseEngine(ABC):
             prompt=prompt,
             max_tokens=max_tokens,
             temperature=temperature,
+            top_p=top_p,
             images=images,
         ):
             chunks.append(chunk)
@@ -149,6 +152,7 @@ class SGLangEngine(BaseEngine):
         prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
+        top_p: float = 0.95,
         images: Optional[list] = None,
         stop_event: Optional[threading.Event] = None,
     ) -> AsyncIterator[str]:
@@ -188,6 +192,7 @@ class SGLangEngine(BaseEngine):
         sampling_params = {
             "max_new_tokens": max_tokens,
             "temperature": temperature,
+            "top_p": top_p,
             "stop": ["<end_of_turn>", "<eos>", "<|endoftext|>"],
         }
 
@@ -344,6 +349,7 @@ class TransformersEngine(BaseEngine):
         prompt: Union[str, List[Dict[str, Any]]],
         max_tokens: int = 2048,
         temperature: float = 0.3,
+        top_p: float = 0.95,
         images: Optional[list] = None,
         stop_event: Optional[threading.Event] = None,
     ) -> AsyncIterator[str]:
@@ -437,7 +443,7 @@ class TransformersEngine(BaseEngine):
         
         if do_sample:
             generation_kwargs["temperature"] = temperature
-            generation_kwargs["top_p"] = 0.95
+            generation_kwargs["top_p"] = top_p
             generation_kwargs["repetition_penalty"] = 1.05
         
         queue = asyncio.Queue()

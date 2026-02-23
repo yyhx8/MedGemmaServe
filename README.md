@@ -23,6 +23,7 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 - **📂 Session Persistence**: Automatic local history management with persistent chat sessions.
 - **📱 Mobile Optimized**: Responsive design with touch-friendly lightbox and pinch-to-zoom support.
 - **🛑 Frontend Loop Guard**: Detects repetitive streamed output and auto-stops generation on the client side.
+- **🎚️ Sampling Controls**: Adjustable temperature and top-p in the frontend, with optional server-side policy lock.
 - **⚙️ Dual-Engine Architecture**: Automatically selects the fastest inference engine (SGLang or Transformers).
 - **🛡️ Robust Security**: Built-in rate limiting and concurrency controls to prevent server overload.
 - **📊 Live System Status**: Integrated hardware widget showing GPU info and server health.
@@ -88,6 +89,9 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 | `--max-conversation-length` | Max characters allowed for the entire conversation history | `100000` |
 | `--max-image-count` | Max images allowed per chat message | `10` |
 | `--max-payload-mb` | Max image upload size in MB | `20` |
+| `--default-temperature` | Default generation temperature for chat/analyze | `0.3` |
+| `--default-top-p` | Default nucleus sampling top-p for chat/analyze | `0.95` |
+| `--allow-client-sampling-config` / `--no-allow-client-sampling-config` | Allow or lock client sampling overrides | `True` |
 | `--show-hardware-stats` | Expose GPU/VRAM usage to frontend | `False` |
 | `--hf-token` | HuggingFace API token | `$HF_TOKEN` env var |
 | `--max-model-len` | Max context length in tokens | `8192` |
@@ -108,6 +112,9 @@ medserver -m 27t -q
 
 # Pass HuggingFace token inline
 medserver -m 4 --hf-token hf_xxxxxxxxxxxxxxxxxxxxx
+
+# Lock sampling to server defaults for all clients
+medserver -m 4 --default-temperature 0.2 --default-top-p 0.9 --no-allow-client-sampling-config
 ```
 
 ---
@@ -182,6 +189,17 @@ window.setLoopStopSensitivity(7); // higher = more aggressive stop
 
 This mechanism runs entirely in the frontend and does not require additional server initialization.
 
+### Generation Controls (Frontend + CLI Policy)
+
+The sidebar includes temperature and top-p controls for per-session tuning.
+
+- By default, client-side overrides are enabled.
+- You can enforce fixed server behavior with:
+  - `--default-temperature`
+  - `--default-top-p`
+  - `--no-allow-client-sampling-config`
+- When locked, frontend sliders are disabled and all requests use server defaults.
+
 ---
 
 ## 🌐 Network Access (WiFi Serving)
@@ -244,6 +262,7 @@ curl -X POST http://localhost:8000/api/chat \
     ],
     "max_tokens": 1024,
     "temperature": 0.3,
+    "top_p": 0.95,
     "stream": true
   }'
 ```

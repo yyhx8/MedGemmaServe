@@ -32,6 +32,10 @@ from slowapi.errors import RateLimitExceeded
 logger = logging.getLogger("medserver.server")
 
 STATIC_DIR = Path(__file__).parent / "static"
+TEMPERATURE_MIN = 0.0
+TEMPERATURE_MAX = 2.0
+TOP_P_MIN = 0.1
+TOP_P_MAX = 1.0
 
 # Clinical system prompt for MedGemma
 SYSTEM_PROMPT = (
@@ -55,6 +59,9 @@ def create_app(
     max_image_count: int = 10,
     max_payload_mb: int = 20,
     show_hardware_stats: bool = False,
+    default_temperature: float = 0.3,
+    default_top_p: float = 0.95,
+    allow_client_sampling_config: bool = True,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
 
@@ -62,6 +69,13 @@ def create_app(
 
     model_info = get_model(model_key)
     start_time = time.time()
+
+    if not (TEMPERATURE_MIN <= default_temperature <= TEMPERATURE_MAX):
+        raise ValueError(
+            f"default_temperature must be between {TEMPERATURE_MIN} and {TEMPERATURE_MAX}, got {default_temperature}"
+        )
+    if not (TOP_P_MIN <= default_top_p <= TOP_P_MAX):
+        raise ValueError(f"default_top_p must be between {TOP_P_MIN} and {TOP_P_MAX}, got {default_top_p}")
 
     # Rate Limiter setup
     limiter = Limiter(key_func=get_remote_address)
@@ -94,6 +108,30 @@ def create_app(
                 429,
                 f"You already have {max_user_streams} active stream(s). Please wait for them to finish.",
             )
+
+    def resolve_sampling_params(
+        requested_temperature: Optional[float],
+        requested_top_p: Optional[float],
+    ) -> tuple[float, float]:
+        """Resolve per-request sampling with server defaults + optional client overrides."""
+        if allow_client_sampling_config:
+            temperature = default_temperature if requested_temperature is None else float(requested_temperature)
+            top_p = default_top_p if requested_top_p is None else float(requested_top_p)
+        else:
+            temperature = default_temperature
+            top_p = default_top_p
+
+        if not (TEMPERATURE_MIN <= temperature <= TEMPERATURE_MAX):
+            raise HTTPException(
+                400,
+                f"temperature must be between {TEMPERATURE_MIN} and {TEMPERATURE_MAX}.",
+            )
+        if not (TOP_P_MIN <= top_p <= TOP_P_MAX):
+            raise HTTPException(
+                400,
+                f"top_p must be between {TOP_P_MIN} and {TOP_P_MAX}.",
+            )
+        return temperature, top_p
 
     # Global Error Handling
     @app.exception_handler(RuntimeError)
@@ -151,6 +189,13 @@ def create_app(
             port=port,
             uptime_seconds=round(time.time() - start_time, 1),
             max_text_length=max_text_length,
+            default_temperature=default_temperature,
+            default_top_p=default_top_p,
+            allow_client_sampling_config=allow_client_sampling_config,
+            temperature_min=TEMPERATURE_MIN,
+            temperature_max=TEMPERATURE_MAX,
+            top_p_min=TOP_P_MIN,
+            top_p_max=TOP_P_MAX,
         )
 
     @app.get("/api/models")
@@ -184,6 +229,8 @@ def create_app(
         """Chat completions — streaming or non-streaming."""
         if not engine.is_loaded:
             raise HTTPException(503, "Model is still loading. Please wait.")
+
+        temperature, top_p = resolve_sampling_params(chat_data.temperature, chat_data.top_p)
 
         if len(chat_data.messages) > max_history_messages:
             raise HTTPException(400, f"Too many messages. Maximum allowed is {max_history_messages}.")
@@ -276,7 +323,16 @@ def create_app(
             stop_event = threading.Event()
             try:
                 return StreamingResponse(
-                    _stream_chat(request, full_messages, chat_data.max_tokens, chat_data.temperature, images if images else None, stop_event, lock),
+                    _stream_chat(
+                        request,
+                        full_messages,
+                        chat_data.max_tokens,
+                        temperature,
+                        top_p,
+                        images if images else None,
+                        stop_event,
+                        lock,
+                    ),
                     media_type="text/event-stream",
                     headers={
                         "Cache-Control": "no-cache",
@@ -293,20 +349,31 @@ def create_app(
                 result = await engine.generate(
                     prompt=full_messages,
                     max_tokens=chat_data.max_tokens,
-                    temperature=chat_data.temperature,
+                    temperature=temperature,
+                    top_p=top_p,
                     images=images if images else None,
                 )
             finally:
                 lock.release()
             return {"response": result}
 
-    async def _stream_chat(request: Request, messages: list, max_tokens: int, temperature: float, images: Optional[list], stop_event: threading.Event, lock: asyncio.Semaphore):
+    async def _stream_chat(
+        request: Request,
+        messages: list,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        images: Optional[list],
+        stop_event: threading.Event,
+        lock: asyncio.Semaphore,
+    ):
         """SSE stream generator for chat responses."""
         try:
             async for token in engine.stream_generate(
                 prompt=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                top_p=top_p,
                 images=images,
                 stop_event=stop_event
             ):
@@ -330,7 +397,8 @@ def create_app(
         image: UploadFile = File(...),
         prompt: str = Form("Analyze this medical image and provide clinical findings."),
         max_tokens: int = Form(2048),
-        temperature: float = Form(0.3),
+        temperature: Optional[float] = Form(None),
+        top_p: Optional[float] = Form(None),
     ):
         """Multimodal image analysis (4B and 27B multimodal models only)."""
         if not model_info.supports_images:
@@ -366,9 +434,19 @@ def create_app(
         if SYSTEM_PROMPT:
              messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
+        effective_temperature, effective_top_p = resolve_sampling_params(temperature, top_p)
         stop_event = threading.Event()
         return StreamingResponse(
-            _stream_analyze(request, messages, [pil_image], max_tokens, temperature, stop_event, lock),
+            _stream_analyze(
+                request,
+                messages,
+                [pil_image],
+                max_tokens,
+                effective_temperature,
+                effective_top_p,
+                stop_event,
+                lock,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -383,6 +461,7 @@ def create_app(
         images: list,
         max_tokens: int,
         temperature: float,
+        top_p: float,
         stop_event: threading.Event,
         lock: asyncio.Semaphore,
     ):
@@ -392,6 +471,7 @@ def create_app(
                 prompt=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                top_p=top_p,
                 images=images,
                 stop_event=stop_event
             ):

@@ -43,8 +43,8 @@
     </div>
 
     <div class="app-layout">
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
+        <!-- Left Sidebar: Prompting + Sessions -->
+        <aside class="sidebar left-sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
                     <div class="logo-icon">M</div>
@@ -66,6 +66,7 @@
                         <textarea id="systemPromptInput" class="sidebar-textarea sidebar-textarea-compact"
                             placeholder="Default clinical prompt..."></textarea>
                     </div>
+
                 </div>
 
                 <div class="sidebar-section sidebar-history">
@@ -77,33 +78,6 @@
             </div>
 
             <div class="sidebar-footer">
-                <!-- Active Engine + Clear History grouped together -->
-                <div class="sidebar-section info-widget sidebar-pinned-bottom">
-                    <div class="sidebar-label">Active Engine</div>
-                    <div id="modelName" class="model-name">--</div>
-                    <div id="modelBadges" class="model-badges"></div>
-
-                    <div id="hwStatsContainer" class="hw-stats hidden">
-                        <div class="sidebar-label hw-stats-toggle" onclick="document.getElementById('hwStatsContent').classList.toggle('hidden')">
-                            <span>Hardware</span>
-                            <span style="font-size: 0.7rem;">▼</span>
-                        </div>
-                        <div id="hwStatsContent">
-                            <div class="hw-stats-row">
-                                <span>GPU</span>
-                                <span id="gpuName" style="color: var(--text-muted);">--</span>
-                            </div>
-                            <div class="hw-stats-row">
-                                <span>Memory</span>
-                                <span id="gpuVram" style="color: var(--text-muted);">--</span>
-                            </div>
-                            <div class="hw-stats-row">
-                                <span>Host</span>
-                                <span id="networkBadge" style="color: var(--text-muted);">--</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
                 <button id="clearHistoryBtn" class="btn-ghost">
                     <span>🗑️</span> Clear History
                 </button>
@@ -114,12 +88,13 @@
         <main class="main-content">
             <header class="main-header">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <button id="sidebarToggle" class="sidebar-toggle" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="false">☰</button>
+                    <button id="sidebarToggle" class="sidebar-toggle" aria-label="Toggle sessions sidebar" aria-controls="sidebar" aria-expanded="false">☰</button>
                     <div class="status-indicator">
                         <div class="status-dot" id="statusDot"></div>
                         <span id="statusText">Connecting</span>
                     </div>
                 </div>
+                <button id="configSidebarToggle" class="sidebar-toggle" aria-label="Toggle model config sidebar" aria-controls="configSidebar" aria-expanded="false">⚙</button>
             </header>
 
             <div class="chat-container" id="chatContainer">
@@ -178,6 +153,74 @@
                 </div>
             </div>
         </main>
+
+        <!-- Right Sidebar: GPU + Model Configuration -->
+        <aside class="sidebar right-sidebar" id="configSidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">⚙</div>
+                    <span>Model Config</span>
+                </div>
+            </div>
+
+            <div class="sidebar-content">
+                <div class="sidebar-section sidebar-top-block config-top-block">
+                    <div class="sidebar-sampling-group" id="samplingControls">
+                        <div class="sidebar-prompt-header">
+                            <div class="sidebar-label" style="margin-bottom: 0;">Generation</div>
+                            <div id="samplingSummary" class="char-counter">T 0.30 • P 0.95</div>
+                        </div>
+
+                        <div class="sampling-control">
+                            <div class="sampling-row">
+                                <label for="temperatureInput">Temperature</label>
+                                <span id="temperatureValue">0.30</span>
+                            </div>
+                            <input id="temperatureInput" class="sampling-slider" type="range" min="0" max="2" step="0.05" value="0.3">
+                        </div>
+
+                        <div class="sampling-control">
+                            <div class="sampling-row">
+                                <label for="topPInput">Top-p</label>
+                                <span id="topPValue">0.95</span>
+                            </div>
+                            <input id="topPInput" class="sampling-slider" type="range" min="0.1" max="1" step="0.01" value="0.95">
+                        </div>
+
+                        <div id="samplingPolicyHint" class="sampling-policy-hint hidden">
+                            Sampling is locked by server policy.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section info-widget sidebar-pinned-bottom">
+                    <div class="sidebar-label">Active Engine</div>
+                    <div id="modelName" class="model-name">--</div>
+                    <div id="modelBadges" class="model-badges"></div>
+
+                    <div id="hwStatsContainer" class="hw-stats hidden">
+                        <div class="sidebar-label hw-stats-toggle" onclick="document.getElementById('hwStatsContent').classList.toggle('hidden')">
+                            <span>Hardware</span>
+                            <span style="font-size: 0.7rem;">▼</span>
+                        </div>
+                        <div id="hwStatsContent">
+                            <div class="hw-stats-row">
+                                <span>GPU</span>
+                                <span id="gpuName" style="color: var(--text-muted);">--</span>
+                            </div>
+                            <div class="hw-stats-row">
+                                <span>Memory</span>
+                                <span id="gpuVram" style="color: var(--text-muted);">--</span>
+                            </div>
+                            <div class="hw-stats-row">
+                                <span>Host</span>
+                                <span id="networkBadge" style="color: var(--text-muted);">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
     </div>
 
     <!-- Hidden Inputs -->

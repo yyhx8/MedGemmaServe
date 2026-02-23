@@ -168,6 +168,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=20,
         help="Maximum size of an uploaded image payload in Megabytes (default: 20)",
     )
+    parser.add_argument(
+        "--default-temperature",
+        type=float,
+        default=0.3,
+        help="Default generation temperature for chat/analyze (range: 0.0-2.0, default: 0.3)",
+    )
+    parser.add_argument(
+        "--default-top-p",
+        type=float,
+        default=0.95,
+        help="Default nucleus sampling top-p for chat/analyze (range: 0.1-1.0, default: 0.95)",
+    )
+    parser.add_argument(
+        "--allow-client-sampling-config",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Allow frontend/API clients to override temperature/top_p per request (default: True)",
+    )
 
     parser.add_argument(
         "--show-hardware-stats",
@@ -222,6 +240,11 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
+    if not (0.0 <= args.default_temperature <= 2.0):
+        parser.error("--default-temperature must be between 0.0 and 2.0")
+    if not (0.1 <= args.default_top_p <= 1.0):
+        parser.error("--default-top-p must be between 0.1 and 1.0")
+
     # Import here to avoid slow imports on --help
     from medserver import __version__
     from medserver.models import get_model
@@ -270,6 +293,11 @@ def main():
         print(f"  🏠 Local:  http://127.0.0.1:{args.port}")
     if args.quantize:
         print(f"  ⚡ Quantization: 4-bit (reduced VRAM)")
+    print(f"  🎛️  Sampling defaults: temperature={args.default_temperature}, top_p={args.default_top_p}")
+    print(
+        "  🔒 Client sampling overrides: "
+        + ("enabled" if args.allow_client_sampling_config else "disabled (server defaults only)")
+    )
     print()
     print("  " + "─" * 50)
     print("  ⏳ Loading model... (this may take a few minutes)")
@@ -303,6 +331,9 @@ def main():
         max_image_count=args.max_image_count,
         max_payload_mb=args.max_payload_mb,
         show_hardware_stats=args.show_hardware_stats,
+        default_temperature=args.default_temperature,
+        default_top_p=args.default_top_p,
+        allow_client_sampling_config=args.allow_client_sampling_config,
     )
 
     # Startup event: load model
