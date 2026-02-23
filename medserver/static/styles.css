@@ -837,16 +837,14 @@ textarea {
 }
 
 /* Message Actions */
-/* Keep actions visible and in reach while scrolling long messages. */
+/* Show actions only on focused message and keep them reachable while scrolling that message. */
 
 .message-actions {
     position: sticky;
     top: 10px;
     align-self: flex-end;
-    display: flex;
+    display: none;
     gap: 6px;
-    opacity: 1;
-    pointer-events: all;
     z-index: 5;
     margin: 0 0 8px auto;
     padding: 4px;
@@ -854,6 +852,10 @@ textarea {
     border: 1px solid var(--border);
     background: rgba(10, 10, 12, 0.7);
     backdrop-filter: blur(8px);
+}
+
+.message.selected .message-actions {
+    display: flex;
 }
 
 .message.selected {

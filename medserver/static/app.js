@@ -269,19 +269,16 @@
             systemPromptInput: $('#systemPromptInput'),
             systemPromptCounter: $('#systemPromptCounter'),
             temperatureInput: $('#temperatureInput'),
-            temperatureValue: $('#temperatureValue'),
             temperatureNumberInput: $('#temperatureNumberInput'),
             temperatureMinusBtn: $('#temperatureMinusBtn'),
             temperaturePlusBtn: $('#temperaturePlusBtn'),
             topPInput: $('#topPInput'),
-            topPValue: $('#topPValue'),
             topPNumberInput: $('#topPNumberInput'),
             topPMinusBtn: $('#topPMinusBtn'),
             topPPlusBtn: $('#topPPlusBtn'),
             samplingSummary: $('#samplingSummary'),
             samplingPolicyHint: $('#samplingPolicyHint'),
             loopStopInput: $('#loopStopInput'),
-            loopStopValue: $('#loopStopValue'),
             loopStopNumberInput: $('#loopStopNumberInput'),
             loopStopMinusBtn: $('#loopStopMinusBtn'),
             loopStopPlusBtn: $('#loopStopPlusBtn'),
@@ -940,12 +937,6 @@
         if (els.topPPlusBtn) {
             els.topPPlusBtn.disabled = !state.allowClientSamplingConfig;
         }
-        if (els.temperatureValue) {
-            els.temperatureValue.textContent = effective.temperature.toFixed(2);
-        }
-        if (els.topPValue) {
-            els.topPValue.textContent = effective.topP.toFixed(2);
-        }
         if (els.samplingSummary) {
             const lockSuffix = state.allowClientSamplingConfig ? '' : ' (locked)';
             els.samplingSummary.textContent = `T ${effective.temperature.toFixed(2)} • P ${effective.topP.toFixed(2)}${lockSuffix}`;
@@ -1042,9 +1033,6 @@
             els.loopStopNumberInput.max = String(LOOP_STOP_MAX);
             els.loopStopNumberInput.step = String(LOOP_STOP_STEP);
             els.loopStopNumberInput.value = String(state.loopStopSensitivity);
-        }
-        if (els.loopStopValue) {
-            els.loopStopValue.textContent = String(state.loopStopSensitivity);
         }
         if (els.loopStopSummary) {
             const status = state.loopStopSensitivity <= 0
@@ -1758,8 +1746,32 @@
     }
 
     // ── Message Actions ───────────────────────────────────
+    function closeOpenEditModes(exceptIndex = null) {
+        const editingAreas = Array.from(document.querySelectorAll('.content-text .edit-textarea'));
+        editingAreas.forEach((textarea) => {
+            const msgEl = textarea.closest('.message');
+            if (!msgEl) return;
+
+            const msgIndex = Number.parseInt(msgEl.dataset.index || '', 10);
+            if (!Number.isInteger(msgIndex)) return;
+            if (Number.isInteger(exceptIndex) && msgIndex === exceptIndex) return;
+
+            const msg = state.messages[msgIndex];
+            if (!msg) return;
+
+            const contentEl = msgEl.querySelector('.content-text');
+            if (!contentEl) return;
+
+            const text = getMessageText(msg.content);
+            contentEl.innerHTML = msg.role === 'assistant'
+                ? renderMarkdown(text, msgIndex, false)
+                : escapeHtml(text);
+        });
+    }
+
     async function editMessage(index) {
         if (state.isStreaming) return;
+        closeOpenEditModes(index);
         const msg = state.messages[index];
         const msgEl = $$('.message')[index];
         if (!msgEl) return;
@@ -1869,6 +1881,7 @@
 
     async function regenerateResponse(targetUserIdx = null) {
         if (state.isStreaming || state.messages.length === 0) return;
+        closeOpenEditModes();
 
         const parsedTarget = typeof targetUserIdx === 'string'
             ? parseInt(targetUserIdx, 10)
@@ -2041,9 +2054,7 @@
                     <button class="action-btn edit-btn" title="${role === 'user' ? 'Edit' : 'Edit Prompt'}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     </button>
-                    ` : ''}
-                    ${role === 'user' ? `
-                    <button class="action-btn delete-btn" title="Delete">
+                    <button class="action-btn delete-btn" title="${role === 'assistant' ? 'Delete Pair' : 'Delete'}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                     ` : ''}
@@ -2103,10 +2114,12 @@
             });
         }
 
-        if (role === 'user') {
-            msgDiv.querySelector('.delete-btn').addEventListener('click', (e) => {
+        const deleteBtn = msgDiv.querySelector('.delete-btn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                deleteMessage(index);
+                const deleteIdx = hasPromptActions ? resolvedPromptIndex : index;
+                deleteMessage(deleteIdx);
             });
         }
 
