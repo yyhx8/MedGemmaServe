@@ -53,21 +53,19 @@
             </div>
 
             <div class="sidebar-content">
-                <div class="sidebar-section">
-                    <button id="newChatBtn" class="btn-send"
-                        style="width: 100%; height: 40px; border-radius: 10px; font-size: 0.85rem; font-weight: 600;">
+                <div class="sidebar-section sidebar-top-block">
+                    <button id="newChatBtn" class="btn-send btn-new-session">
                         + New Session
                     </button>
-                </div>
 
-                <div class="sidebar-section">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <div class="sidebar-label" style="margin-bottom: 0;">System Prompt</div>
-                        <div id="systemPromptCounter" class="char-counter">0 / 50000</div>
+                    <div class="sidebar-prompt-group">
+                        <div class="sidebar-prompt-header">
+                            <div class="sidebar-label" style="margin-bottom: 0;">System Prompt</div>
+                            <div id="systemPromptCounter" class="char-counter">0 / 50000</div>
+                        </div>
+                        <textarea id="systemPromptInput" class="sidebar-textarea sidebar-textarea-compact"
+                            placeholder="Default clinical prompt..."></textarea>
                     </div>
-                    <textarea id="systemPromptInput" class="sidebar-textarea"
-                        placeholder="Default clinical prompt..."></textarea>
                 </div>
 
                 <div class="sidebar-section" style="flex: 1;">
@@ -82,27 +80,24 @@
                 <!-- Active Engine + Clear History grouped together -->
                 <div class="sidebar-section info-widget sidebar-pinned-bottom">
                     <div class="sidebar-label">Active Engine</div>
-                    <div id="modelName"
-                        style="font-size: 0.85rem; font-weight: 500; color: var(--text-main); margin-bottom: 4px;">--
-                    </div>
+                    <div id="modelName" class="model-name">--</div>
                     <div id="modelBadges" class="model-badges"></div>
 
-                    <div id="hwStatsContainer" class="hw-stats hidden"
-                        style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--text-dim); margin-top: 12px;">
-                        <div class="sidebar-label" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="document.getElementById('hwStatsContent').classList.toggle('hidden')">
+                    <div id="hwStatsContainer" class="hw-stats hidden">
+                        <div class="sidebar-label hw-stats-toggle" onclick="document.getElementById('hwStatsContent').classList.toggle('hidden')">
                             <span>Hardware</span>
                             <span style="font-size: 0.7rem;">▼</span>
                         </div>
                         <div id="hwStatsContent">
-                            <div style="display: flex; justify-content: space-between;">
+                            <div class="hw-stats-row">
                                 <span>GPU</span>
                                 <span id="gpuName" style="color: var(--text-muted);">--</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
+                            <div class="hw-stats-row">
                                 <span>Memory</span>
                                 <span id="gpuVram" style="color: var(--text-muted);">--</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
+                            <div class="hw-stats-row">
                                 <span>Host</span>
                                 <span id="networkBadge" style="color: var(--text-muted);">--</span>
                             </div>
