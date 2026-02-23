@@ -501,6 +501,7 @@ body.sidebar-open {
     animation: fadeIn 0.4s ease;
     border-bottom: 1px solid var(--border);
     position: relative;
+    transition: background-color 0.2s ease, border-radius 0.2s ease;
 }
 
 .message:last-child {
@@ -843,19 +844,33 @@ textarea {
     position: sticky;
     top: 10px;
     align-self: flex-end;
-    display: none;
+    display: flex;
     gap: 6px;
     z-index: 5;
-    margin: 0 0 8px auto;
-    padding: 4px;
+    margin: 0 0 0 auto;
+    max-height: 0;
+    padding: 0;
     border-radius: 10px;
-    border: 1px solid var(--border);
-    background: rgba(10, 10, 12, 0.7);
-    backdrop-filter: blur(8px);
+    border: 1px solid transparent;
+    background: rgba(10, 10, 12, 0);
+    backdrop-filter: blur(0px);
+    opacity: 0;
+    transform: translateY(-6px);
+    overflow: hidden;
+    pointer-events: none;
+    transition: max-height 0.22s ease, margin-bottom 0.22s ease, padding 0.22s ease, opacity 0.2s ease, transform 0.22s ease, border-color 0.2s ease, background-color 0.2s ease, backdrop-filter 0.2s ease;
 }
 
 .message.selected .message-actions {
-    display: flex;
+    max-height: 56px;
+    margin: 0 0 8px auto;
+    padding: 4px;
+    border-color: var(--border);
+    background: rgba(10, 10, 12, 0.7);
+    backdrop-filter: blur(8px);
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
 }
 
 .message.selected {
@@ -1399,6 +1414,9 @@ textarea {
     .message-actions {
         top: 8px;
         gap: 4px;
+    }
+
+    .message.selected .message-actions {
         padding: 3px;
         margin-bottom: 6px;
     }
