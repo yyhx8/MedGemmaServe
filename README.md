@@ -22,6 +22,7 @@ medserver -m 4 -p 7070 -ip 192.168.1.50
 - **🎨 Refined Typography**: Optimized markdown rendering with clear spacing and hierarchical clarity.
 - **📂 Session Persistence**: Automatic local history management with persistent chat sessions.
 - **📱 Mobile Optimized**: Responsive design with touch-friendly lightbox and pinch-to-zoom support.
+- **🧭 Dual Sidebar Workspace**: Left sidebar for sessions/prompting, right sidebar for model/GPU configuration.
 - **🛑 Frontend Loop Guard**: Detects repetitive streamed output and auto-stops generation on the client side.
 - **🎚️ Sampling Controls**: Adjustable temperature and top-p in the frontend, with optional server-side policy lock.
 - **⚙️ Dual-Engine Architecture**: Automatically selects the fastest inference engine (SGLang or Transformers).
@@ -85,7 +86,7 @@ medserver [-m MODEL] [-p PORT] [-ip HOST] [-q] [--workers N] [--hf-token TOKEN]
 | `--max-user-streams` | Max concurrent streams per user IP | `1` |
 | `--rate-limit` | API rate limit (e.g., '10/minute') | `20/minute` |
 | `--max-history-messages` | Max messages allowed in chat history | `100` |
-| `--max-text-length` | Max characters allowed per individual message | `50000` |
+| `--max-text-length` | Max characters allowed per user/system text turn | `50000` |
 | `--max-conversation-length` | Max characters allowed for the entire conversation history | `100000` |
 | `--max-image-count` | Max images allowed per chat message | `10` |
 | `--max-payload-mb` | Max image upload size in MB | `20` |
@@ -170,6 +171,7 @@ MedServer includes built-in protection against overload and abuse:
 
 - **Rate Limiting:** Prevents API spam by limiting requests per IP address (default: 20/minute). Configurable via `--rate-limit`.
 - **Concurrency Control:** Limits the number of simultaneous active generation streams per user to prevent GPU OOM errors (default: 1). Configurable via `--max-user-streams`.
+- **Turn Text Limits:** Enforces `--max-text-length` per user/system turn in both frontend guards and server-side validation.
 - **Graceful Degradation:** Returns HTTP 429 (Too Many Requests) when limits are exceeded, ensuring the server remains responsive for other users.
 
 ### Frontend Loop Auto-Stop
@@ -180,6 +182,7 @@ To prevent runaway repetitive responses, the web UI includes a frontend-only loo
 - **Range:** `0` to `10`
 - **Disable:** set sensitivity to `0`
 - **Persistence:** stored in browser local storage (`medserver_loop_stop_sensitivity`)
+- **UI controls:** right sidebar includes slider, exact numeric input, and `+/-` buttons for sensitivity.
 
 You can tune it from browser devtools:
 
@@ -191,7 +194,9 @@ This mechanism runs entirely in the frontend and does not require additional ser
 
 ### Generation Controls (Frontend + CLI Policy)
 
-The sidebar includes temperature and top-p controls for per-session tuning.
+The right sidebar includes temperature and top-p controls for per-session tuning.
+
+- **Precision controls:** sliders, exact numeric inputs, and `+/-` step buttons.
 
 - By default, client-side overrides are enabled.
 - You can enforce fixed server behavior with:
