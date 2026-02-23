@@ -467,8 +467,9 @@
 
         // Global click to deselect messages
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.message')) {
+            if (!e.target.closest('.message') && !e.target.closest('#promptActionDock')) {
                 $$('.message.selected').forEach(m => m.classList.remove('selected'));
+                hidePromptActionDock();
             }
         });
 
@@ -679,6 +680,7 @@
     function switchToChat(chatId) {
         const chat = ChatStore.get(chatId);
         if (!chat) return;
+        hidePromptActionDock();
 
         // Correctly check if we are in the same chat BEFORE updating state.activeChatId
         const isSameChat = (state.activeChatId === chatId);
@@ -711,6 +713,7 @@
             showToast('Please wait for the current response to finish or stop it before starting a new conversation.', 'warning');
             return;
         }
+        hidePromptActionDock();
 
         // Create and switch
         state.activeChatId = null;
@@ -1337,6 +1340,7 @@
 
         state.isStreaming = true;
         state.abortController = new AbortController();
+        hidePromptActionDock();
 
         els.sendBtn.innerHTML = '■';
         els.sendBtn.classList.add('stop');
@@ -1712,6 +1716,7 @@
     // ── Welcome Screen ────────────────────────────────────
     function showWelcomeScreen() {
         if (!els.chatContainer) return;
+        hidePromptActionDock();
         els.chatContainer.innerHTML = '';
 
         const welcome = document.createElement('div');
@@ -1753,6 +1758,50 @@
     function hideWelcomeScreen() {
         const ws = $('#welcomeScreen');
         if (ws) ws.style.display = 'none';
+    }
+
+    function getPromptActionDock() {
+        let dock = document.getElementById('promptActionDock');
+        if (dock) return dock;
+
+        dock = document.createElement('div');
+        dock.id = 'promptActionDock';
+        dock.className = 'prompt-action-dock hidden';
+        dock.innerHTML = `
+            <button class="dock-action-btn dock-edit-btn" type="button">Edit Prompt</button>
+            <button class="dock-action-btn dock-regen-btn" type="button">Regenerate</button>
+        `;
+
+        dock.querySelector('.dock-edit-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = Number.parseInt(dock.dataset.promptIndex || '', 10);
+            if (Number.isInteger(idx)) editMessage(idx);
+        });
+        dock.querySelector('.dock-regen-btn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const idx = Number.parseInt(dock.dataset.promptIndex || '', 10);
+            if (Number.isInteger(idx)) await regenerateResponse(idx);
+        });
+
+        document.body.appendChild(dock);
+        return dock;
+    }
+
+    function showPromptActionDock(promptIndex) {
+        if (!Number.isInteger(promptIndex) || promptIndex < 0) {
+            hidePromptActionDock();
+            return;
+        }
+        const dock = getPromptActionDock();
+        dock.dataset.promptIndex = String(promptIndex);
+        dock.classList.remove('hidden');
+    }
+
+    function hidePromptActionDock() {
+        const dock = document.getElementById('promptActionDock');
+        if (!dock) return;
+        dock.classList.add('hidden');
+        delete dock.dataset.promptIndex;
     }
 
     // ── Message Actions ───────────────────────────────────
@@ -1833,6 +1882,7 @@
 
     function deleteMessage(index) {
         if (state.isStreaming) return;
+        hidePromptActionDock();
 
         const scrollPos = els.chatContainer.scrollTop;
         let startIdx = index;
@@ -1995,6 +2045,19 @@
         msgDiv.dataset.index = index;
 
         const avatarIcon = role === 'assistant' ? 'M' : '👤';
+        const resolvedPromptIndex = role === 'user'
+            ? index
+            : (
+                targetUserIndex !== null && targetUserIndex !== undefined
+                    ? targetUserIndex
+                    : (index > 0 && state.messages[index - 1] && state.messages[index - 1].role === 'user'
+                        ? index - 1
+                        : null)
+            );
+        const hasPromptActions = Number.isInteger(resolvedPromptIndex) && resolvedPromptIndex >= 0;
+        if (hasPromptActions) {
+            msgDiv.dataset.promptIndex = String(resolvedPromptIndex);
+        }
 
         let imagesHtml = '';
         const imageUrlsToRender = [];
@@ -2019,13 +2082,15 @@
                     <button class="action-btn copy-btn" title="Copy">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     </button>
-                    ${role === 'user' ? `
+                    ${hasPromptActions ? `
                     <button class="action-btn regen-btn" title="Regenerate from here">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                     </button>
-                    <button class="action-btn edit-btn" title="Edit">
+                    <button class="action-btn edit-btn" title="${role === 'user' ? 'Edit' : 'Edit Prompt'}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     </button>
+                    ` : ''}
+                    ${role === 'user' ? `
                     <button class="action-btn delete-btn" title="Delete">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
@@ -2051,7 +2116,16 @@
 
             const isSelected = msgDiv.classList.contains('selected');
             $$('.message.selected').forEach(m => m.classList.remove('selected'));
-            if (!isSelected) msgDiv.classList.add('selected');
+            if (!isSelected) {
+                msgDiv.classList.add('selected');
+                if (hasPromptActions) {
+                    showPromptActionDock(resolvedPromptIndex);
+                } else {
+                    hidePromptActionDock();
+                }
+            } else {
+                hidePromptActionDock();
+            }
         });
 
         // Bind actions
@@ -2068,15 +2142,23 @@
             setTimeout(() => btn.innerHTML = oldHtml, 2000);
         });
 
+        const regenBtn = msgDiv.querySelector('.regen-btn');
+        if (regenBtn && hasPromptActions) {
+            regenBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await regenerateResponse(resolvedPromptIndex);
+            });
+        }
+
+        const editBtn = msgDiv.querySelector('.edit-btn');
+        if (editBtn && hasPromptActions) {
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                editMessage(resolvedPromptIndex);
+            });
+        }
+
         if (role === 'user') {
-            msgDiv.querySelector('.regen-btn').addEventListener('click', async (e) => {
-                e.stopPropagation();
-                await regenerateResponse(index);
-            });
-            msgDiv.querySelector('.edit-btn').addEventListener('click', (e) => {
-                e.stopPropagation();
-                editMessage(index);
-            });
             msgDiv.querySelector('.delete-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 deleteMessage(index);
