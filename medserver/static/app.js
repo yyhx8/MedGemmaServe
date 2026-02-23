@@ -157,6 +157,8 @@
         expandedThoughts: new Set(), // Track which thoughts are manually expanded: "msgIdx-thoughtIdx"
         manualScroll: false, // Track if user has manually scrolled up during streaming
         currentStreamText: '', // Track raw text for reliable finalization/tags
+        currentStreamAssistantIdx: null, // Exact assistant slot being streamed
+        currentStreamContentEl: null, // Exact DOM node for current streamed assistant content
         lightboxTransform: {
             scale: 1, x: 0, y: 0,
             isDragging: false, startX: 0, startY: 0,
@@ -295,9 +297,9 @@
         window.addEventListener('beforeunload', () => {
             if (state.isStreaming) {
                 // Try to finalize and save whatever we have right now
-                const lastAssistantIdx = state.messages.length - 1;
-                const contentEl = $$('.message.assistant .content-text')[$$('.message.assistant').length - 1];
-                finalizeStreamingResponse(null, lastAssistantIdx >= 0 ? lastAssistantIdx : 0, contentEl);
+                const targetIdx = state.currentStreamAssistantIdx !== null ? state.currentStreamAssistantIdx : state.messages.length;
+                const contentEl = state.currentStreamContentEl || $$('.message.assistant .content-text')[$$('.message.assistant').length - 1];
+                finalizeStreamingResponse(null, targetIdx, contentEl);
 
                 // Also abort the fetch to trigger server-side stop if possible
                 if (state.abortController) {
@@ -890,6 +892,8 @@
         const targetUserIdx = insertIndex !== -1 ? insertIndex - 1 : null;
         const msgEl = addMessage('assistant', '', null, true, assistantMsgIdx, targetUserIdx);
         const contentEl = msgEl.querySelector('.message-content .content-text');
+        state.currentStreamAssistantIdx = assistantMsgIdx;
+        state.currentStreamContentEl = contentEl;
 
         const recoverFromSendFailure = (reason = '') => {
             const fallbackNotice = 'Unable to send right now. Your prompt was restored.';
@@ -1067,6 +1071,9 @@
         } finally {
             state.isStreaming = false;
             state.abortController = null;
+            state.currentStreamAssistantIdx = null;
+            state.currentStreamContentEl = null;
+            state.currentStreamText = '';
             resetSendButton();
             renderRegenerateButton();
         }
@@ -1093,16 +1100,30 @@
             contentEl.innerHTML = renderMarkdown(processedText, targetIdx, false) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
         }
 
-        // Only push if we haven't already pushed an assistant message for this turn
+        // Persist into the exact target slot to avoid overwriting newer turns.
         if (processedText.trim().length > 0) {
-            // Check if last message is already assistant
-            const lastMsg = state.messages[state.messages.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-                lastMsg.content = processedText;
+            const assistantMsg = { role: 'assistant', content: processedText };
+            if (targetIdx >= 0 && targetIdx < state.messages.length) {
+                if (state.messages[targetIdx] && state.messages[targetIdx].role === 'assistant') {
+                    state.messages[targetIdx] = assistantMsg;
+                } else {
+                    state.messages.splice(targetIdx, 0, assistantMsg);
+                }
             } else {
-                state.messages.push({ role: 'assistant', content: processedText });
+                const lastMsg = state.messages[state.messages.length - 1];
+                if (lastMsg && lastMsg.role === 'assistant') {
+                    lastMsg.content = processedText;
+                } else {
+                    state.messages.push(assistantMsg);
+                }
             }
             persistMessages();
+        } else if (targetIdx >= 0 && targetIdx < state.messages.length && state.messages[targetIdx]?.role === 'assistant') {
+            // If no token arrived (e.g. immediate stop during regenerate), keep the existing stored assistant.
+            if (contentEl) {
+                const priorText = getMessageText(state.messages[targetIdx].content);
+                contentEl.innerHTML = renderMarkdown(priorText, targetIdx, false);
+            }
         }
     }
 
@@ -1116,18 +1137,14 @@
                 els.sendBtn.disabled = true;
             }
 
-            // Force immediate UI update to kill animation
-            const assistantContents = document.querySelectorAll('.message.assistant .content-text');
-            if (assistantContents.length > 0) {
-                const lastContentEl = assistantContents[assistantContents.length - 1];
-                const msgIdx = state.messages.length;
-                let text = state.currentStreamText;
-                // Close thinking tags if they are open so renderMarkdown treats them as finished
-                if (text.includes('<unused94>') && !text.includes('<unused95>')) {
-                    text += '<unused95>';
-                }
-                lastContentEl.innerHTML = renderMarkdown(text, msgIdx, false) + ' <span style="color:var(--text-dim); font-size: 0.8rem;">(stopped)</span>';
+            const msgIdx = state.currentStreamAssistantIdx !== null ? state.currentStreamAssistantIdx : state.messages.length;
+            const contentEl = state.currentStreamContentEl || $$('.message.assistant .content-text')[$$('.message.assistant .content-text').length - 1];
+            let text = state.currentStreamText || '';
+            // Close thinking tags if they are open so renderMarkdown treats them as finished.
+            if (text.includes('<unused94>') && !text.includes('<unused95>')) {
+                text += '<unused95>';
             }
+            finalizeStreamingResponse(text, msgIdx, contentEl);
 
             state.abortController.abort();
         }
