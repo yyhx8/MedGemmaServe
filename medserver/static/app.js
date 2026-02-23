@@ -887,7 +887,8 @@
         removeRegenerateButton();
 
         const assistantMsgIdx = insertIndex !== -1 ? insertIndex : state.messages.length;
-        const msgEl = addMessage('assistant', '', null, true, assistantMsgIdx);
+        const targetUserIdx = insertIndex !== -1 ? insertIndex - 1 : null;
+        const msgEl = addMessage('assistant', '', null, true, assistantMsgIdx, targetUserIdx);
         const contentEl = msgEl.querySelector('.message-content .content-text');
 
         const recoverFromSendFailure = (reason = '') => {
@@ -1436,7 +1437,7 @@
     }
 
     // ── Message Rendering ─────────────────────────────────
-    function addMessage(role, content, imageDataUrls, animate = true, index) {
+    function addMessage(role, content, imageDataUrls, animate = true, index, targetUserIndex = null) {
         if (!els.chatContainer) return;
 
         const text = getMessageText(content);
@@ -1456,8 +1457,22 @@
                 els.chatContainer.appendChild(pairDiv);
             }
         } else {
-            // Assistant: search for the latest pair that has a user message but no assistant message
-            pairDiv = allPairs.reverse().find(p => p.querySelector('.message.user') && !p.querySelector('.message.assistant'));
+            // Regeneration path: attach assistant to the exact target user turn.
+            if (targetUserIndex !== null && targetUserIndex !== undefined) {
+                pairDiv = allPairs.find((p) => {
+                    const userMsg = p.querySelector('.message.user');
+                    return userMsg && parseInt(userMsg.dataset.index, 10) === targetUserIndex;
+                });
+                if (pairDiv) {
+                    const existingAssistant = pairDiv.querySelector('.message.assistant');
+                    if (existingAssistant) existingAssistant.remove();
+                }
+            }
+
+            // Default path: latest pair with a user message but no assistant message.
+            if (!pairDiv) {
+                pairDiv = allPairs.reverse().find(p => p.querySelector('.message.user') && !p.querySelector('.message.assistant'));
+            }
 
             if (!pairDiv) {
                 pairDiv = document.createElement('div');
