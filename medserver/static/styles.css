@@ -260,10 +260,63 @@ body.sidebar-open {
     cursor: default;
 }
 
+.sampling-value {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .sampling-row span {
     font-family: 'JetBrains Mono', monospace;
     color: var(--text-regular);
     font-size: 0.68rem;
+}
+
+.sampling-number {
+    width: 72px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-main);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    padding: 4px 6px;
+    text-align: right;
+    outline: none;
+}
+
+.sampling-number:focus {
+    border-color: var(--accent);
+}
+
+.sampling-number:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.sampling-step-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-subtle);
+    color: var(--text-regular);
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sampling-step-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.sampling-step-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .sampling-slider {
@@ -994,6 +1047,11 @@ textarea {
     font-size: 0.7rem;
     color: var(--text-dim);
     font-family: 'JetBrains Mono', monospace;
+}
+
+.char-counter.over-limit {
+    color: var(--status-alert);
+    font-weight: 600;
 }
 
 .sidebar-section {

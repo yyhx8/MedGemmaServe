@@ -174,7 +174,12 @@
                         <div class="sampling-control">
                             <div class="sampling-row">
                                 <label for="temperatureInput">Temperature</label>
-                                <span id="temperatureValue">0.30</span>
+                                <div class="sampling-value">
+                                    <span id="temperatureValue">0.30</span>
+                                    <button id="temperatureMinusBtn" class="sampling-step-btn" type="button" aria-label="Decrease temperature">−</button>
+                                    <input id="temperatureNumberInput" class="sampling-number" type="number" min="0" max="2" step="0.05" value="0.30" aria-label="Temperature exact value">
+                                    <button id="temperaturePlusBtn" class="sampling-step-btn" type="button" aria-label="Increase temperature">+</button>
+                                </div>
                             </div>
                             <input id="temperatureInput" class="sampling-slider" type="range" min="0" max="2" step="0.05" value="0.3">
                         </div>
@@ -182,7 +187,12 @@
                         <div class="sampling-control">
                             <div class="sampling-row">
                                 <label for="topPInput">Top-p</label>
-                                <span id="topPValue">0.95</span>
+                                <div class="sampling-value">
+                                    <span id="topPValue">0.95</span>
+                                    <button id="topPMinusBtn" class="sampling-step-btn" type="button" aria-label="Decrease top-p">−</button>
+                                    <input id="topPNumberInput" class="sampling-number" type="number" min="0.1" max="1" step="0.01" value="0.95" aria-label="Top-p exact value">
+                                    <button id="topPPlusBtn" class="sampling-step-btn" type="button" aria-label="Increase top-p">+</button>
+                                </div>
                             </div>
                             <input id="topPInput" class="sampling-slider" type="range" min="0.1" max="1" step="0.01" value="0.95">
                         </div>
@@ -190,6 +200,27 @@
                         <div id="samplingPolicyHint" class="sampling-policy-hint hidden">
                             Sampling is locked by server policy.
                         </div>
+                    </div>
+
+                    <div class="sidebar-sampling-group" id="loopStopControls">
+                        <div class="sidebar-prompt-header">
+                            <div class="sidebar-label" style="margin-bottom: 0;">Auto Loop Stop</div>
+                            <div id="loopStopSummary" class="char-counter">Sensitivity 5</div>
+                        </div>
+
+                        <div class="sampling-control">
+                            <div class="sampling-row">
+                                <label for="loopStopInput">Sensitivity</label>
+                                <div class="sampling-value">
+                                    <span id="loopStopValue">5</span>
+                                    <button id="loopStopMinusBtn" class="sampling-step-btn" type="button" aria-label="Decrease loop stop sensitivity">−</button>
+                                    <input id="loopStopNumberInput" class="sampling-number" type="number" min="0" max="10" step="1" value="5" aria-label="Loop stop sensitivity exact value">
+                                    <button id="loopStopPlusBtn" class="sampling-step-btn" type="button" aria-label="Increase loop stop sensitivity">+</button>
+                                </div>
+                            </div>
+                            <input id="loopStopInput" class="sampling-slider" type="range" min="0" max="10" step="1" value="5">
+                        </div>
+                        <div class="sampling-policy-hint">Set to 0 to disable auto loop stop.</div>
                     </div>
                 </div>
 

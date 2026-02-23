@@ -252,18 +252,24 @@ def create_app(
         for m in chat_data.messages:
             # Create a structured message for the engine
             msg_content = m.content
-            
-            # Per-message string length validation (only for user messages)
-            if m.role == "user" and isinstance(msg_content, str) and len(msg_content) > max_text_length:
-                raise HTTPException(400, f"Message content too long. Maximum allowed is {max_text_length} characters.")
-            
+
+            message_text_length = 0
+
             # Track total conversation length
             if isinstance(msg_content, str):
-                total_content_length += len(msg_content)
+                message_text_length = len(msg_content)
+                total_content_length += message_text_length
             elif isinstance(msg_content, list):
                 for item in msg_content:
                     if item.get("type") == "text":
-                        total_content_length += len(item.get("text", ""))
+                        text_part = str(item.get("text", ""))
+                        message_text_length += len(text_part)
+                        total_content_length += len(text_part)
+
+            # Enforce per-turn prompt limit for user/system text.
+            if m.role in {"user", "system"} and message_text_length > max_text_length:
+                label = "System prompt" if m.role == "system" else "Message content"
+                raise HTTPException(400, f"{label} too long. Maximum allowed is {max_text_length} characters.")
 
             if m.image_data and len(m.image_data) > max_image_count:
                 raise HTTPException(400, f"Too many images in a single message. Maximum allowed is {max_image_count}.")

@@ -43,12 +43,17 @@
     const SAMPLING_TEMPERATURE_KEY = 'medserver_sampling_temperature';
     const SAMPLING_TOP_P_KEY = 'medserver_sampling_top_p';
     const DEFAULT_LOOP_STOP_SENSITIVITY = 5;
+    const LOOP_STOP_MIN = 0;
+    const LOOP_STOP_MAX = 10;
+    const LOOP_STOP_STEP = 1;
     const DEFAULT_SAMPLING_TEMPERATURE = 0.3;
     const DEFAULT_SAMPLING_TOP_P = 0.95;
     const DEFAULT_TEMPERATURE_MIN = 0.0;
     const DEFAULT_TEMPERATURE_MAX = 2.0;
     const DEFAULT_TOP_P_MIN = 0.1;
     const DEFAULT_TOP_P_MAX = 1.0;
+    const TEMPERATURE_STEP = 0.05;
+    const TOP_P_STEP = 0.01;
 
     function clampInt(value, min, max, fallback) {
         const n = Number.parseInt(value, 10);
@@ -60,6 +65,11 @@
         const n = Number.parseFloat(value);
         if (!Number.isFinite(n)) return fallback;
         return Math.max(min, Math.min(max, n));
+    }
+
+    function snapToStep(value, min, step, decimals = 2) {
+        const snapped = min + (Math.round((value - min) / step) * step);
+        return Number(snapped.toFixed(decimals));
     }
 
     /**
@@ -185,8 +195,8 @@
         rightSidebarOpen: false,
         loopStopSensitivity: clampInt(
             safeStorage.get(LOOP_STOP_SENSITIVITY_KEY, String(DEFAULT_LOOP_STOP_SENSITIVITY)),
-            0,
-            10,
+            LOOP_STOP_MIN,
+            LOOP_STOP_MAX,
             DEFAULT_LOOP_STOP_SENSITIVITY
         ),
         samplingTemperature: clampFloat(
@@ -260,10 +270,22 @@
             systemPromptCounter: $('#systemPromptCounter'),
             temperatureInput: $('#temperatureInput'),
             temperatureValue: $('#temperatureValue'),
+            temperatureNumberInput: $('#temperatureNumberInput'),
+            temperatureMinusBtn: $('#temperatureMinusBtn'),
+            temperaturePlusBtn: $('#temperaturePlusBtn'),
             topPInput: $('#topPInput'),
             topPValue: $('#topPValue'),
+            topPNumberInput: $('#topPNumberInput'),
+            topPMinusBtn: $('#topPMinusBtn'),
+            topPPlusBtn: $('#topPPlusBtn'),
             samplingSummary: $('#samplingSummary'),
             samplingPolicyHint: $('#samplingPolicyHint'),
+            loopStopInput: $('#loopStopInput'),
+            loopStopValue: $('#loopStopValue'),
+            loopStopNumberInput: $('#loopStopNumberInput'),
+            loopStopMinusBtn: $('#loopStopMinusBtn'),
+            loopStopPlusBtn: $('#loopStopPlusBtn'),
+            loopStopSummary: $('#loopStopSummary'),
             chatInputCounter: $('#chatInputCounter'),
             jumpToBottomBtn: $('#jumpToBottomBtn'),
             inputArea: $('.input-area'),
@@ -352,6 +374,7 @@
             });
         }
         updateSamplingControls();
+        updateLoopStopControls();
 
         bindEvents();
         loadChatHistory();
@@ -389,10 +412,43 @@
         }
         if (els.sendBtn) els.sendBtn.addEventListener('click', onSend);
         if (els.temperatureInput) {
-            els.temperatureInput.addEventListener('input', onSamplingInput);
+            els.temperatureInput.addEventListener('input', () => onSamplingInput('slider'));
         }
         if (els.topPInput) {
-            els.topPInput.addEventListener('input', onSamplingInput);
+            els.topPInput.addEventListener('input', () => onSamplingInput('slider'));
+        }
+        if (els.temperatureNumberInput) {
+            els.temperatureNumberInput.addEventListener('change', () => onSamplingInput('number'));
+            els.temperatureNumberInput.addEventListener('blur', () => onSamplingInput('number'));
+        }
+        if (els.topPNumberInput) {
+            els.topPNumberInput.addEventListener('change', () => onSamplingInput('number'));
+            els.topPNumberInput.addEventListener('blur', () => onSamplingInput('number'));
+        }
+        if (els.temperatureMinusBtn) {
+            els.temperatureMinusBtn.addEventListener('click', () => adjustSamplingTemperature(-1));
+        }
+        if (els.temperaturePlusBtn) {
+            els.temperaturePlusBtn.addEventListener('click', () => adjustSamplingTemperature(1));
+        }
+        if (els.topPMinusBtn) {
+            els.topPMinusBtn.addEventListener('click', () => adjustSamplingTopP(-1));
+        }
+        if (els.topPPlusBtn) {
+            els.topPPlusBtn.addEventListener('click', () => adjustSamplingTopP(1));
+        }
+        if (els.loopStopInput) {
+            els.loopStopInput.addEventListener('input', () => onLoopStopInput('slider'));
+        }
+        if (els.loopStopNumberInput) {
+            els.loopStopNumberInput.addEventListener('change', () => onLoopStopInput('number'));
+            els.loopStopNumberInput.addEventListener('blur', () => onLoopStopInput('number'));
+        }
+        if (els.loopStopMinusBtn) {
+            els.loopStopMinusBtn.addEventListener('click', () => adjustLoopStopSensitivity(-1));
+        }
+        if (els.loopStopPlusBtn) {
+            els.loopStopPlusBtn.addEventListener('click', () => adjustLoopStopSensitivity(1));
         }
 
         // Sidebar toggles
@@ -746,6 +802,40 @@
         return new Date(timestamp).toLocaleDateString();
     }
 
+    function getMaxTextLength() {
+        return state.maxTextLength || 50000;
+    }
+
+    function getContentTextLength(content) {
+        if (typeof content === 'string') return content.length;
+        if (Array.isArray(content)) {
+            return content.reduce((sum, item) => {
+                if (item && item.type === 'text') {
+                    return sum + String(item.text || '').length;
+                }
+                return sum;
+            }, 0);
+        }
+        return 0;
+    }
+
+    function validateTurnLengths(messages) {
+        const maxLen = getMaxTextLength();
+        for (const msg of messages) {
+            if (msg.role !== 'user' && msg.role !== 'system') continue;
+            const len = getContentTextLength(msg.content);
+            if (len > maxLen) {
+                return {
+                    ok: false,
+                    role: msg.role,
+                    length: len,
+                    max: maxLen,
+                };
+            }
+        }
+        return { ok: true, max: maxLen };
+    }
+
     function getEffectiveSamplingConfig() {
         if (state.allowClientSamplingConfig) {
             return {
@@ -811,16 +901,42 @@
         if (els.temperatureInput) {
             els.temperatureInput.min = String(state.samplingTemperatureMin);
             els.temperatureInput.max = String(state.samplingTemperatureMax);
-            els.temperatureInput.step = '0.05';
+            els.temperatureInput.step = String(TEMPERATURE_STEP);
             els.temperatureInput.value = String(state.samplingTemperature);
             els.temperatureInput.disabled = !state.allowClientSamplingConfig;
         }
         if (els.topPInput) {
             els.topPInput.min = String(state.samplingTopPMin);
             els.topPInput.max = String(state.samplingTopPMax);
-            els.topPInput.step = '0.01';
+            els.topPInput.step = String(TOP_P_STEP);
             els.topPInput.value = String(state.samplingTopP);
             els.topPInput.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.temperatureNumberInput) {
+            els.temperatureNumberInput.min = String(state.samplingTemperatureMin);
+            els.temperatureNumberInput.max = String(state.samplingTemperatureMax);
+            els.temperatureNumberInput.step = String(TEMPERATURE_STEP);
+            els.temperatureNumberInput.value = state.samplingTemperature.toFixed(2);
+            els.temperatureNumberInput.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.temperatureMinusBtn) {
+            els.temperatureMinusBtn.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.temperaturePlusBtn) {
+            els.temperaturePlusBtn.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.topPNumberInput) {
+            els.topPNumberInput.min = String(state.samplingTopPMin);
+            els.topPNumberInput.max = String(state.samplingTopPMax);
+            els.topPNumberInput.step = String(TOP_P_STEP);
+            els.topPNumberInput.value = state.samplingTopP.toFixed(2);
+            els.topPNumberInput.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.topPMinusBtn) {
+            els.topPMinusBtn.disabled = !state.allowClientSamplingConfig;
+        }
+        if (els.topPPlusBtn) {
+            els.topPPlusBtn.disabled = !state.allowClientSamplingConfig;
         }
         if (els.temperatureValue) {
             els.temperatureValue.textContent = effective.temperature.toFixed(2);
@@ -837,30 +953,123 @@
         }
     }
 
-    function onSamplingInput() {
+    function adjustSamplingTemperature(direction) {
+        if (!state.allowClientSamplingConfig) return;
+        state.samplingTemperature = snapToStep(
+            clampFloat(
+                state.samplingTemperature + (direction * TEMPERATURE_STEP),
+                state.samplingTemperatureMin,
+                state.samplingTemperatureMax,
+                state.defaultSamplingTemperature
+            ),
+            state.samplingTemperatureMin,
+            TEMPERATURE_STEP,
+            2
+        );
+        safeStorage.set(SAMPLING_TEMPERATURE_KEY, String(state.samplingTemperature));
+        updateSamplingControls();
+    }
+
+    function adjustSamplingTopP(direction) {
+        if (!state.allowClientSamplingConfig) return;
+        state.samplingTopP = snapToStep(
+            clampFloat(
+                state.samplingTopP + (direction * TOP_P_STEP),
+                state.samplingTopPMin,
+                state.samplingTopPMax,
+                state.defaultSamplingTopP
+            ),
+            state.samplingTopPMin,
+            TOP_P_STEP,
+            2
+        );
+        safeStorage.set(SAMPLING_TOP_P_KEY, String(state.samplingTopP));
+        updateSamplingControls();
+    }
+
+    function onSamplingInput(source = 'slider') {
         if (!state.allowClientSamplingConfig) {
             updateSamplingControls();
             return;
         }
-        if (els.temperatureInput) {
-            state.samplingTemperature = clampFloat(
-                els.temperatureInput.value,
+
+        const tempRaw = source === 'number'
+            ? (els.temperatureNumberInput ? els.temperatureNumberInput.value : state.samplingTemperature)
+            : (els.temperatureInput ? els.temperatureInput.value : state.samplingTemperature);
+        const topPRaw = source === 'number'
+            ? (els.topPNumberInput ? els.topPNumberInput.value : state.samplingTopP)
+            : (els.topPInput ? els.topPInput.value : state.samplingTopP);
+
+        state.samplingTemperature = snapToStep(
+            clampFloat(
+                tempRaw,
                 state.samplingTemperatureMin,
                 state.samplingTemperatureMax,
                 state.defaultSamplingTemperature
-            );
-            safeStorage.set(SAMPLING_TEMPERATURE_KEY, String(state.samplingTemperature));
-        }
-        if (els.topPInput) {
-            state.samplingTopP = clampFloat(
-                els.topPInput.value,
+            ),
+            state.samplingTemperatureMin,
+            TEMPERATURE_STEP,
+            2
+        );
+        state.samplingTopP = snapToStep(
+            clampFloat(
+                topPRaw,
                 state.samplingTopPMin,
                 state.samplingTopPMax,
                 state.defaultSamplingTopP
-            );
-            safeStorage.set(SAMPLING_TOP_P_KEY, String(state.samplingTopP));
-        }
+            ),
+            state.samplingTopPMin,
+            TOP_P_STEP,
+            2
+        );
+
+        safeStorage.set(SAMPLING_TEMPERATURE_KEY, String(state.samplingTemperature));
+        safeStorage.set(SAMPLING_TOP_P_KEY, String(state.samplingTopP));
         updateSamplingControls();
+    }
+
+    function updateLoopStopControls() {
+        if (els.loopStopInput) {
+            els.loopStopInput.min = String(LOOP_STOP_MIN);
+            els.loopStopInput.max = String(LOOP_STOP_MAX);
+            els.loopStopInput.step = String(LOOP_STOP_STEP);
+            els.loopStopInput.value = String(state.loopStopSensitivity);
+        }
+        if (els.loopStopNumberInput) {
+            els.loopStopNumberInput.min = String(LOOP_STOP_MIN);
+            els.loopStopNumberInput.max = String(LOOP_STOP_MAX);
+            els.loopStopNumberInput.step = String(LOOP_STOP_STEP);
+            els.loopStopNumberInput.value = String(state.loopStopSensitivity);
+        }
+        if (els.loopStopValue) {
+            els.loopStopValue.textContent = String(state.loopStopSensitivity);
+        }
+        if (els.loopStopSummary) {
+            const status = state.loopStopSensitivity <= 0
+                ? 'Disabled'
+                : `Sensitivity ${state.loopStopSensitivity}`;
+            els.loopStopSummary.textContent = status;
+        }
+    }
+
+    function onLoopStopInput(source = 'slider') {
+        const raw = source === 'number'
+            ? (els.loopStopNumberInput ? els.loopStopNumberInput.value : state.loopStopSensitivity)
+            : (els.loopStopInput ? els.loopStopInput.value : state.loopStopSensitivity);
+        state.loopStopSensitivity = clampInt(raw, LOOP_STOP_MIN, LOOP_STOP_MAX, state.loopStopSensitivity);
+        safeStorage.set(LOOP_STOP_SENSITIVITY_KEY, String(state.loopStopSensitivity));
+        updateLoopStopControls();
+    }
+
+    function adjustLoopStopSensitivity(direction) {
+        state.loopStopSensitivity = clampInt(
+            state.loopStopSensitivity + (direction * LOOP_STOP_STEP),
+            LOOP_STOP_MIN,
+            LOOP_STOP_MAX,
+            state.loopStopSensitivity
+        );
+        safeStorage.set(LOOP_STOP_SENSITIVITY_KEY, String(state.loopStopSensitivity));
+        updateLoopStopControls();
     }
 
     // ── Health Polling ────────────────────────────────────
@@ -994,12 +1203,13 @@
         if (!els.chatInput || !els.sendBtn) return;
         const hasText = els.chatInput.value.trim().length > 0;
         const hasImages = state.attachedImagesData.length > 0;
+        const isTextTooLong = els.chatInput.value.length > getMaxTextLength();
 
         // During streaming, the button acts as a STOP button and should NEVER be disabled
         if (state.isStreaming) {
             els.sendBtn.disabled = false;
         } else {
-            els.sendBtn.disabled = (!hasText && !hasImages);
+            els.sendBtn.disabled = (!hasText && !hasImages) || isTextTooLong;
         }
         updateTokenCounter();
         updateCharCounters();
@@ -1052,12 +1262,14 @@
     }
 
     function updateCharCounters() {
-        const maxLen = state.maxTextLength || 50000;
+        const maxLen = getMaxTextLength();
         if (els.chatInput && els.chatInputCounter) {
             els.chatInputCounter.textContent = `${els.chatInput.value.length} / ${maxLen}`;
+            els.chatInputCounter.classList.toggle('over-limit', els.chatInput.value.length > maxLen);
         }
         if (els.systemPromptInput && els.systemPromptCounter) {
             els.systemPromptCounter.textContent = `${els.systemPromptInput.value.length} / ${maxLen}`;
+            els.systemPromptCounter.classList.toggle('over-limit', els.systemPromptInput.value.length > maxLen);
         }
     }
 
@@ -1072,6 +1284,18 @@
 
         const text = els.chatInput.value.trim();
         if (!text && state.attachedImagesData.length === 0) return;
+        const maxLen = getMaxTextLength();
+        const systemPrompt = ChatStore.getSystemPrompt() || '';
+        if (systemPrompt.length > maxLen) {
+            showToast(`System prompt exceeds ${maxLen} characters.`, 'warning');
+            if (els.systemPromptInput) els.systemPromptInput.focus();
+            return;
+        }
+        if (text.length > maxLen) {
+            showToast(`Prompt exceeds ${maxLen} characters.`, 'warning');
+            if (els.chatInput) els.chatInput.focus();
+            return;
+        }
 
         ensureActiveChatExists();
         hideWelcomeScreen();
@@ -1172,6 +1396,18 @@
             const messagesToSend = insertIndex !== -1
                 ? state.messages.slice(0, insertIndex)
                 : state.messages;
+            const systemPrompt = ChatStore.getSystemPrompt() || '';
+            const maxLen = getMaxTextLength();
+            if (systemPrompt.length > maxLen) {
+                recoverFromSendFailure(`System prompt exceeds ${maxLen} characters`);
+                return;
+            }
+            const turnLengthValidation = validateTurnLengths(messagesToSend);
+            if (!turnLengthValidation.ok) {
+                const roleLabel = turnLengthValidation.role === 'system' ? 'System prompt' : 'User message';
+                recoverFromSendFailure(`${roleLabel} exceeds ${turnLengthValidation.max} characters`);
+                return;
+            }
             const sampling = getEffectiveSamplingConfig();
 
             const res = await fetch('/api/chat', {
@@ -1184,7 +1420,7 @@
                         content: m.content,
                         image_data: m.imageData || []
                     })),
-                    system_prompt: ChatStore.getSystemPrompt() || undefined,
+                    system_prompt: systemPrompt || undefined,
                     max_tokens: 2048,
                     temperature: sampling.temperature,
                     top_p: sampling.topP,
@@ -1550,6 +1786,12 @@
         contentText.querySelector('.btn-save').addEventListener('click', async () => {
             const newContent = textarea.value.trim();
             if (newContent !== currentText) {
+                if (msg.role === 'user' && newContent.length > getMaxTextLength()) {
+                    showToast(`Prompt exceeds ${getMaxTextLength()} characters.`, 'warning');
+                    textarea.focus();
+                    return;
+                }
+
                 // Update message content in state
                 if (Array.isArray(msg.content)) {
                     state.messages[index].content = msg.content.map(item =>
@@ -2034,9 +2276,10 @@
 
     // Runtime helper for loop-stop tuning without server config.
     window.setLoopStopSensitivity = function (value) {
-        const next = clampInt(value, 0, 10, state.loopStopSensitivity);
+        const next = clampInt(value, LOOP_STOP_MIN, LOOP_STOP_MAX, state.loopStopSensitivity);
         state.loopStopSensitivity = next;
         safeStorage.set(LOOP_STOP_SENSITIVITY_KEY, String(next));
+        updateLoopStopControls();
         showToast(`Loop auto-stop sensitivity set to ${next}`, 'info');
     };
 
@@ -2046,17 +2289,27 @@
             showToast('Sampling is locked by server policy.', 'warning');
             return;
         }
-        state.samplingTemperature = clampFloat(
-            temperature,
+        state.samplingTemperature = snapToStep(
+            clampFloat(
+                temperature,
+                state.samplingTemperatureMin,
+                state.samplingTemperatureMax,
+                state.samplingTemperature
+            ),
             state.samplingTemperatureMin,
-            state.samplingTemperatureMax,
-            state.samplingTemperature
+            TEMPERATURE_STEP,
+            2
         );
-        state.samplingTopP = clampFloat(
-            topP,
+        state.samplingTopP = snapToStep(
+            clampFloat(
+                topP,
+                state.samplingTopPMin,
+                state.samplingTopPMax,
+                state.samplingTopP
+            ),
             state.samplingTopPMin,
-            state.samplingTopPMax,
-            state.samplingTopP
+            TOP_P_STEP,
+            2
         );
         safeStorage.set(SAMPLING_TEMPERATURE_KEY, String(state.samplingTemperature));
         safeStorage.set(SAMPLING_TOP_P_KEY, String(state.samplingTopP));
